@@ -1,2 +1,6 @@
-click
-rich
+click>=8.0
+rich>=13.0
+bcrypt>=4.0
+python-dotenv>=1.0
+pytest>=7.0
+
