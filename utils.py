@@ -38,4 +38,3 @@ def iso_now():
 
 def iso_days_from_now(days: int):
     return (datetime.utcnow() + timedelta(days=days)).date().isoformat()
-

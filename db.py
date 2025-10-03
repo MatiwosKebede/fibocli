@@ -8,16 +8,22 @@ DB_PATH = os.environ.get("ECOLOGY_DB", "ecology.db")
 SCHEMA_FILE = os.environ.get("ECOLOGY_SCHEMA", "schema.sql")
 
 def _make_conn():
-    conn = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
+    try:
+        conn = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        return conn
+    except sqlite3.Error as e:
+        raise RuntimeError(f"Database connection error: {e}")
 
 @contextmanager
 def get_conn() -> Iterator[sqlite3.Connection]:
     conn = _make_conn()
     try:
         yield conn
+    except sqlite3.Error as e:
+        conn.rollback()
+        raise RuntimeError(f"Database operation error: {e}")
     finally:
         conn.commit()
         conn.close()
@@ -34,12 +40,21 @@ def init_db(overwrite: bool = False) -> None:
         conn = sqlite3.connect(DB_PATH)
         try:
             c = conn.cursor()
-            c.executescript(schema)
+            # Split schema into individual statements for better error reporting
+            statements = schema.split(';')
+            for stmt in statements:
+                stmt = stmt.strip()
+                if stmt:
+                    try:
+                        c.execute(stmt)
+                    except sqlite3.Error as e:
+                        raise RuntimeError(f"Error executing SQL: {stmt}\nError: {e}")
             conn.commit()
+        except sqlite3.Error as e:
+            conn.rollback()
+            raise RuntimeError(f"Database initialization error: {e}")
         finally:
             conn.close()
     else:
-        # run optimize pragmas
         with get_conn() as conn:
             conn.execute("PRAGMA optimize;")
-

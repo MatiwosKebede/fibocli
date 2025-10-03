@@ -20,6 +20,6 @@ DEFAULTS: Dict[str, Any] = {
     "R_decay_cap": 10,
     "R_threshold": 0.7,
     "calendar_max_hours_per_day": [8,8,8,8,8,8,8],
-    "base_time_minutes": 30
+    "base_time_minutes": 30,
+    "base_completion_days": 4
 }
-

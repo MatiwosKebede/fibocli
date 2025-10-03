@@ -4,13 +4,13 @@
 -- Run with: sqlite3 ecology.db < schema.sql
 
 -- PRAGMA settings optimized for offline single-user application
-PRAGMA foreign_keys = ON;                    -- Enforce referential integrity
-PRAGMA journal_mode = WAL;                   -- Write-Ahead Logging for better concurrency and crash recovery
-PRAGMA synchronous = NORMAL;                 -- Balanced safety and performance for offline use
-PRAGMA cache_size = -20000;                  -- 20MB cache (negative value in KiB)
-PRAGMA temp_store = MEMORY;                  -- Use RAM for temporary tables/indexes
-PRAGMA mmap_size = 268435456;                -- Memory mapping for faster reads (256MB)
-PRAGMA optimize;                             -- Optimize database on load
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA cache_size = -20000;
+PRAGMA temp_store = MEMORY;
+PRAGMA mmap_size = 268435456;
+PRAGMA optimize;
 
 -- Users table: Stores user accounts with full profile information
 CREATE TABLE IF NOT EXISTS users (
@@ -82,12 +82,18 @@ CREATE TABLE IF NOT EXISTS fibonacci (
     value INTEGER NOT NULL CHECK (value >= 0)
 );
 
--- Insert Fibonacci sequence (up to index 50 to prevent overflow in long-term use)
+-- Insert Fibonacci sequence in smaller batches to avoid parser issues
 INSERT OR IGNORE INTO fibonacci (fib_index, value) VALUES
 (1, 1), (2, 1), (3, 2), (4, 3), (5, 5), (6, 8), (7, 13), (8, 21), (9, 34), (10, 55),
-(11, 89), (12, 144), (13, 233), (14, 377), (15, 610), (16, 987), (17, 1597), (18, 2584), (19, 4181), (20, 6765),
-(21, 10946), (22, 17711), (23, 28657), (24, 46368), (25, 75025), (26, 121393), (27, 196418), (28, 317811), (29, 514229), (30, 832040),
-(31, 1346269), (32, 2178309), (33, 3524578), (34, 5702887), (35, 9227465), (36, 14930352), (37, 24157817), (38, 39088169), (39, 63245986), (40, 102334155),
+(11, 89), (12, 144), (13, 233), (14, 377), (15, 610), (16, 987), (17, 1597), (18, 2584), (19, 4181), (20, 6765);
+
+INSERT OR IGNORE INTO fibonacci (fib_index, value) VALUES
+(21, 10946), (22, 17711), (23, 28657), (24, 46368), (25, 75025), (26, 121393), (27, 196418), (28, 317811), (29, 514229), (30, 832040);
+
+INSERT OR IGNORE INTO fibonacci (fib_index, value) VALUES
+(31, 1346269), (32, 2178309), (33, 3524578), (34, 5702887), (35, 9227465), (36, 14930352), (37, 24157817), (38, 39088169), (39, 63245986), (40, 102334155);
+
+INSERT OR IGNORE INTO fibonacci (fib_index, value) VALUES
 (41, 165580141), (42, 267914296), (43, 433494437), (44, 701408733), (45, 1134903170), (46, 1836311903), (47, 2971215073), (48, 4807526976), (49, 7778742049), (50, 12586269025);
 
 -- Ecologies table: Top-level node (one per user) with comprehensive metadata
@@ -135,6 +141,7 @@ CREATE TABLE IF NOT EXISTS forests (
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
     metadata TEXT,
+    next_forest_id INTEGER DEFAULT NULL,
     FOREIGN KEY (ecology_id) REFERENCES ecologies(id) ON DELETE CASCADE
 );
 
@@ -159,6 +166,7 @@ CREATE TABLE IF NOT EXISTS trees (
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
     metadata TEXT,
+    next_tree_id INTEGER DEFAULT NULL,
     FOREIGN KEY (forest_id) REFERENCES forests(id) ON DELETE CASCADE
 );
 
@@ -183,6 +191,7 @@ CREATE TABLE IF NOT EXISTS super_branches (
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
     metadata TEXT,
+    next_super_branch_id INTEGER DEFAULT NULL,
     FOREIGN KEY (tree_id) REFERENCES trees(id) ON DELETE CASCADE
 );
 
@@ -207,6 +216,7 @@ CREATE TABLE IF NOT EXISTS branches (
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
     metadata TEXT,
+    next_branch_id INTEGER DEFAULT NULL,
     FOREIGN KEY (super_branch_id) REFERENCES super_branches(id) ON DELETE CASCADE
 );
 
@@ -231,6 +241,7 @@ CREATE TABLE IF NOT EXISTS sub_branches (
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
     metadata TEXT,
+    next_sub_branch_id INTEGER DEFAULT NULL,
     FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
 );
 
@@ -259,6 +270,7 @@ CREATE TABLE IF NOT EXISTS leaves (
     size_target INTEGER DEFAULT 1 CHECK (size_target > 0),
     is_deleted BOOLEAN DEFAULT FALSE,
     metadata TEXT,
+    next_leaf_id INTEGER DEFAULT NULL,
     FOREIGN KEY (sub_branch_id) REFERENCES sub_branches(id) ON DELETE CASCADE
 );
 
@@ -344,7 +356,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     CONSTRAINT chk_expiry CHECK (expires_at IS NULL OR expires_at > created_at)
 );
 
--- Sync queue table: Offline operation queue for synchronization (critical for offline-first design)
+-- Sync queue table: Offline operation queue for synchronization
 CREATE TABLE IF NOT EXISTS sync_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -366,6 +378,33 @@ CREATE TABLE IF NOT EXISTS sync_queue (
     last_error TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT chk_retry_limit CHECK (retry_count <= 5)
+);
+
+-- Streaks Table
+CREATE TABLE IF NOT EXISTS streaks (
+    user_id INTEGER PRIMARY KEY,
+    streak_start DATE,
+    streak_end DATE,
+    current_length INTEGER DEFAULT 0,
+    longest_length INTEGER DEFAULT 0
+);
+
+-- Readiness Heatmap Table
+CREATE TABLE IF NOT EXISTS daily_readiness (
+    user_id INTEGER,
+    date DATE,
+    readiness_score REAL,
+    PRIMARY KEY(user_id, date)
+);
+
+-- Wave relationships table for linking parent-child waves
+CREATE TABLE IF NOT EXISTS wave_relationships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_wave_id INTEGER NOT NULL,
+    child_wave_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(parent_wave_id) REFERENCES waves(id),
+    FOREIGN KEY(child_wave_id) REFERENCES waves(id)
 );
 
 -- Indexes for performance optimization in offline scenario
@@ -420,9 +459,7 @@ CREATE INDEX IF NOT EXISTS idx_branches_status ON branches(status);
 CREATE INDEX IF NOT EXISTS idx_sub_branches_status ON sub_branches(status);
 CREATE INDEX IF NOT EXISTS idx_leaves_status ON leaves(status);
 
--- Views for progress tracking and readiness (optimized for offline queries)
-
--- Leaf status view: Completion ratio for leaves
+-- Views for progress tracking and readiness
 CREATE VIEW IF NOT EXISTS v_leaf_status AS
 SELECT 
     l.id,
@@ -444,7 +481,6 @@ LEFT JOIN reviews r ON r.target_type = 'leaf' AND r.target_id = l.id
 WHERE l.is_deleted = FALSE
 GROUP BY l.id;
 
--- Sub-branch progress view: Aggregated weighted readiness
 CREATE VIEW IF NOT EXISTS v_sub_branch_progress AS
 SELECT 
     sb.id,
@@ -456,14 +492,15 @@ SELECT
     COALESCE(SUM(vls.completion_ratio * vls.importance * vls.difficulty) / NULLIF(SUM(vls.importance * vls.difficulty), 0), 0) AS weighted_readiness_score,
     COALESCE(SUM(vls.understanding_level * vls.importance * vls.difficulty) / NULLIF(SUM(vls.importance * vls.difficulty), 0), 0) AS weighted_understanding_level,
     sb.completion_days,
-    sb.status
+    sb.status,
+    sb.importance,
+    sb.difficulty
 FROM sub_branches sb
 LEFT JOIN leaves l ON l.sub_branch_id = sb.id AND l.is_deleted = FALSE
 LEFT JOIN v_leaf_status vls ON vls.id = l.id
 WHERE sb.is_deleted = FALSE
 GROUP BY sb.id;
 
--- Branch progress view: Aggregated from sub-branches
 CREATE VIEW IF NOT EXISTS v_branch_progress AS
 SELECT 
     b.id,
@@ -472,16 +509,17 @@ SELECT
     COUNT(sb.id) AS sub_branch_count,
     SUM(CASE WHEN sb.status = 'completed' THEN 1 ELSE 0 END) AS completed_sub_branches,
     AVG(vsbp.weighted_readiness_score) AS avg_readiness_score,
-    COALESCE(SUM(vsbp.weighted_readiness_score * sb.importance * sb.difficulty) / NULLIF(SUM(sb.importance * sb.difficulty), 0), 0) AS weighted_readiness_score,
+    COALESCE(SUM(vsbp.weighted_readiness_score * vsbp.importance * vsbp.difficulty) / NULLIF(SUM(vsbp.importance * vsbp.difficulty), 0), 0) AS weighted_readiness_score,
     b.completion_days,
-    b.status
+    b.status,
+    b.importance,
+    b.difficulty
 FROM branches b
 LEFT JOIN sub_branches sb ON sb.branch_id = b.id AND sb.is_deleted = FALSE
 LEFT JOIN v_sub_branch_progress vsbp ON vsbp.id = sb.id
 WHERE b.is_deleted = FALSE
 GROUP BY b.id;
 
--- Super-branch progress view: Aggregated from branches
 CREATE VIEW IF NOT EXISTS v_super_branch_progress AS
 SELECT 
     sb.id,
@@ -489,16 +527,17 @@ SELECT
     sb.name,
     COUNT(b.id) AS branch_count,
     AVG(vbp.weighted_readiness_score) AS avg_readiness_score,
-    COALESCE(SUM(vbp.weighted_readiness_score * b.importance * b.difficulty) / NULLIF(SUM(b.importance * b.difficulty), 0), 0) AS weighted_readiness_score,
+    COALESCE(SUM(vbp.weighted_readiness_score * vbp.importance * vbp.difficulty) / NULLIF(SUM(vbp.importance * vbp.difficulty), 0), 0) AS weighted_readiness_score,
     sb.completion_days,
-    sb.status
+    sb.status,
+    sb.importance,
+    sb.difficulty
 FROM super_branches sb
 LEFT JOIN branches b ON b.super_branch_id = sb.id AND b.is_deleted = FALSE
 LEFT JOIN v_branch_progress vbp ON vbp.id = b.id
 WHERE sb.is_deleted = FALSE
 GROUP BY sb.id;
 
--- Tree progress view: Aggregated from super-branches
 CREATE VIEW IF NOT EXISTS v_tree_progress AS
 SELECT 
     t.id,
@@ -506,16 +545,17 @@ SELECT
     t.name,
     COUNT(sb.id) AS super_branch_count,
     AVG(vsbp.weighted_readiness_score) AS avg_readiness_score,
-    COALESCE(SUM(vsbp.weighted_readiness_score * sb.importance * sb.difficulty) / NULLIF(SUM(sb.importance * sb.difficulty), 0), 0) AS weighted_readiness_score,
+    COALESCE(SUM(vsbp.weighted_readiness_score * vsbp.importance * vsbp.difficulty) / NULLIF(SUM(vsbp.importance * vbp.difficulty), 0), 0) AS weighted_readiness_score,
     t.completion_days,
-    t.status
+    t.status,
+    t.importance,
+    t.difficulty
 FROM trees t
 LEFT JOIN super_branches sb ON sb.tree_id = t.id AND sb.is_deleted = FALSE
 LEFT JOIN v_super_branch_progress vsbp ON vsbp.id = sb.id
 WHERE t.is_deleted = FALSE
 GROUP BY t.id;
 
--- Forest progress view: Aggregated from trees
 CREATE VIEW IF NOT EXISTS v_forest_progress AS
 SELECT 
     f.id,
@@ -523,16 +563,17 @@ SELECT
     f.name,
     COUNT(t.id) AS tree_count,
     AVG(vtp.weighted_readiness_score) AS avg_readiness_score,
-    COALESCE(SUM(vtp.weighted_readiness_score * t.importance * t.difficulty) / NULLIF(SUM(t.importance * t.difficulty), 0), 0) AS weighted_readiness_score,
+    COALESCE(SUM(vtp.weighted_readiness_score * vtp.importance * vtp.difficulty) / NULLIF(SUM(vtp.importance * vtp.difficulty), 0), 0) AS weighted_readiness_score,
     f.completion_days,
-    f.status
+    f.status,
+    f.importance,
+    f.difficulty
 FROM forests f
 LEFT JOIN trees t ON t.forest_id = f.id AND t.is_deleted = FALSE
 LEFT JOIN v_tree_progress vtp ON vtp.id = t.id
 WHERE f.is_deleted = FALSE
 GROUP BY f.id;
 
--- Ecology progress view: Aggregated from forests
 CREATE VIEW IF NOT EXISTS v_ecology_progress AS
 SELECT 
     e.id,
@@ -540,34 +581,43 @@ SELECT
     e.name,
     COUNT(f.id) AS forest_count,
     AVG(vfp.weighted_readiness_score) AS avg_readiness_score,
-    COALESCE(SUM(vfp.weighted_readiness_score * f.importance * f.difficulty) / NULLIF(SUM(f.importance * f.difficulty), 0), 0) AS weighted_readiness_score,
+    COALESCE(SUM(vfp.weighted_readiness_score * vfp.importance * vfp.difficulty) / NULLIF(SUM(vfp.importance * vfp.difficulty), 0), 0) AS weighted_readiness_score,
     e.completion_days,
-    e.status
+    e.status,
+    e.importance,
+    e.difficulty
 FROM ecologies e
 LEFT JOIN forests f ON f.ecology_id = e.id AND f.is_deleted = FALSE
 LEFT JOIN v_forest_progress vfp ON vfp.id = f.id
 WHERE e.is_deleted = FALSE
 GROUP BY e.id;
 
--- Unified hierarchy view for quick traversal and offline rendering
 CREATE VIEW IF NOT EXISTS v_hierarchy_overview AS
 SELECT 'ecology' AS node_type, id, NULL AS parent_id, user_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_ecology_progress
 UNION ALL
-SELECT 'forest' AS node_type, id, ecology_id AS parent_id, ecology_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score FROM v_forest_progress
+SELECT 'forest' AS node_type, id, ecology_id AS parent_id, ecology_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_forest_progress
 UNION ALL
-SELECT 'tree' AS node_type, id, forest_id AS parent_id, forest_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score FROM v_tree_progress
+SELECT 'tree' AS node_type, id, forest_id AS parent_id, forest_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_tree_progress
 UNION ALL
-SELECT 'super_branch' AS node_type, id, tree_id AS parent_id, tree_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score FROM v_super_branch_progress
+SELECT 'super_branch' AS node_type, id, tree_id AS parent_id, tree_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_super_branch_progress
 UNION ALL
-SELECT 'branch' AS node_type, id, super_branch_id AS parent_id, super_branch_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score FROM v_branch_progress
+SELECT 'branch' AS node_type, id, super_branch_id AS parent_id, super_branch_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_branch_progress
 UNION ALL
-SELECT 'sub_branch' AS node_type, id, branch_id AS parent_id, branch_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score FROM v_sub_branch_progress
+SELECT 'sub_branch' AS node_type, id, branch_id AS parent_id, branch_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_sub_branch_progress
 UNION ALL
-SELECT 'leaf' AS node_type, id, sub_branch_id AS parent_id, sub_branch_id AS root_id, name, status, importance, difficulty, completion_days, completion_ratio FROM v_leaf_status;
+SELECT 'leaf' AS node_type, id, sub_branch_id AS parent_id, sub_branch_id AS root_id, name, status, importance, difficulty, completion_days, completion_ratio AS readiness_score FROM v_leaf_status;
+
+CREATE VIEW IF NOT EXISTS weekly_stats AS
+SELECT
+    strftime('%W', performed_date) AS week_number,
+    COUNT(*) AS reviews_completed,
+    AVG(understanding_after) AS avg_understanding,
+    SUM(actual_duration) AS total_minutes
+FROM reviews
+WHERE status = 'completed'
+GROUP BY week_number;
 
 -- Triggers to maintain data integrity and timestamps
-
--- Update updated_at timestamp on modifications
 CREATE TRIGGER IF NOT EXISTS trg_update_users_updated_at
 AFTER UPDATE ON users
 FOR EACH ROW BEGIN
@@ -598,12 +648,10 @@ BEFORE INSERT ON waves
 FOR EACH ROW WHEN NEW.wave_number IS NULL
 BEGIN
     UPDATE waves SET wave_number = (
-        SELECT CASE
-            WHEN EXISTS (SELECT 1 FROM waves WHERE parent_type = NEW.parent_type AND parent_id = NEW.parent_id)
-            THEN (SELECT MAX(wave_number) + 1 FROM waves WHERE parent_type = NEW.parent_type AND parent_id = NEW.parent_id)
-            ELSE 1
-        END
-    ) WHERE id = NEW.id;
+        SELECT COALESCE(MAX(wave_number), 0) + 1
+        FROM waves
+        WHERE parent_type = NEW.parent_type AND parent_id = NEW.parent_id
+    ) WHERE rowid = NEW.rowid;
 END;
 
 -- Validate JSON in metadata fields on insert/update
@@ -722,74 +770,3 @@ BEGIN
 END;
 
 -- End of schema
--- Scheduling Table
-CREATE TABLE IF NOT EXISTS schedules (
-    schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    node_id INTEGER NOT NULL,
-    start_time DATETIME NOT NULL,
-    end_time DATETIME NOT NULL,
-    priority INTEGER DEFAULT 1, -- higher = more important
-    status TEXT DEFAULT 'pending', -- 'pending', 'completed', 'skipped'
-    FOREIGN KEY(node_id) REFERENCES leaves(leaf_id)
-);
-
--- Daily workload settings
-CREATE TABLE IF NOT EXISTS user_settings (
-    user_id INTEGER PRIMARY KEY,
-    calendar_max_hours_per_day REAL DEFAULT 12
-);
-
--- Review Table
-CREATE TABLE IF NOT EXISTS reviews (
-    review_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    schedule_id INTEGER,
-    node_id INTEGER,
-    review_date DATE,
-    duration REAL,
-    understanding_level INTEGER,
-    FOREIGN KEY(schedule_id) REFERENCES schedules(schedule_id),
-    FOREIGN KEY(node_id) REFERENCES leaves(leaf_id)
-);
-
--- Streaks Table
-CREATE TABLE IF NOT EXISTS streaks (
-    user_id INTEGER PRIMARY KEY,
-    streak_start DATE,
-    streak_end DATE,
-    current_length INTEGER DEFAULT 0,
-    longest_length INTEGER DEFAULT 0
-);
-
--- Readiness Heatmap Table
-CREATE TABLE IF NOT EXISTS daily_readiness (
-    user_id INTEGER,
-    date DATE,
-    readiness_score REAL,
-    PRIMARY KEY(user_id, date)
-);
-
--- Weekly stats view
-CREATE VIEW IF NOT EXISTS weekly_stats AS
-SELECT
-    strftime('%W', review_date) AS week_number,
-    COUNT(*) AS reviews_completed,
-    AVG(understanding_level) AS avg_understanding,
-    SUM(duration) AS total_hours
-FROM reviews
-GROUP BY week_number;
-CREATE TABLE IF NOT EXISTS wave_relationships (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    parent_wave_id INTEGER NOT NULL,
-    child_wave_id INTEGER NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(parent_wave_id) REFERENCES waves(id),
-    FOREIGN KEY(child_wave_id) REFERENCES waves(id)
-);
--- Add chain links
-ALTER TABLE leaves ADD COLUMN next_leaf_id INTEGER DEFAULT NULL;
-ALTER TABLE sub_branches ADD COLUMN next_sub_branch_id INTEGER DEFAULT NULL;
-ALTER TABLE branches ADD COLUMN next_branch_id INTEGER DEFAULT NULL;
-ALTER TABLE super_branches ADD COLUMN next_super_branch_id INTEGER DEFAULT NULL;
-ALTER TABLE trees ADD COLUMN next_tree_id INTEGER DEFAULT NULL;
-ALTER TABLE forests ADD COLUMN next_forest_id INTEGER DEFAULT NULL;
-

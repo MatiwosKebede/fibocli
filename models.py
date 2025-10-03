@@ -1,7 +1,7 @@
 # models.py
 from db import get_conn
+from utils import load_session_token, iso_now
 from typing import Optional, Dict, Any, List
-from utils import iso_now
 import json
 import datetime
 
@@ -33,6 +33,19 @@ def get_user_from_token(token: str) -> Optional[int]:
         c.execute("SELECT user_id FROM sessions WHERE token = ? AND is_valid = 1", (token,))
         row = c.fetchone()
         return int(row["user_id"]) if row else None
+
+def get_logged_in_user() -> Optional[Dict[str,Any]]:
+    token = load_session_token()
+    if not token:
+        return None
+    uid = get_user_from_token(token)
+    if not uid:
+        return None
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE id = ?", (uid,))
+        row = c.fetchone()
+        return dict(row) if row else None
 
 # -- Hierarchy CRUD --
 def create_ecology(user_id: int, name: str, course_name: str = "", course_code: str = "") -> int:
@@ -86,29 +99,112 @@ def insert_leaf(sub_branch_id: int, name: str, course_name: str, course_code: st
         """, (sub_branch_id, name, course_name, course_code, created_at))
         return c.lastrowid
 
-def add_sync_queue(user_id: int, operation: str, data: dict, target_type: str = None, target_id: int | None = None):
+def get_user_settings(user_id: int) -> Dict[str, Any]:
     with get_conn() as conn:
         c = conn.cursor()
-        c.execute("INSERT INTO sync_queue (user_id, operation, target_type, target_id, data, created_at, status, retry_count) VALUES (?, ?, ?, ?, ?, datetime('now'), 'pending', 0)",
-                  (user_id, operation, target_type, target_id, json.dumps(data)))
+        c.execute("SELECT * FROM settings WHERE user_id = ?", (user_id,))
+        row = c.fetchone()
+        return dict(row) if row else DEFAULTS
 
-# -- Query helpers --
-def get_leaves_for_user(user_id:int):
+def get_user_ecology(user_id: int) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
         c = conn.cursor()
-        # join hierarchy to ensure user scoping: leaves -> sub_branch -> branch -> ... -> ecology -> user
-        query = """
-            SELECT l.* FROM leaves l
-            JOIN sub_branches sb ON sb.id = l.sub_branch_id
-            JOIN branches b ON b.id = sb.branch_id
-            JOIN super_branches sb2 ON sb2.id = b.super_branch_id
-            JOIN trees t ON t.id = sb2.tree_id
-            JOIN forests f ON f.id = t.forest_id
-            JOIN ecologies e ON e.id = f.ecology_id
-            WHERE e.user_id = ? AND l.is_deleted = 0
-        """
-        c.execute(query, (user_id,))
-        return [dict(row) for row in c.fetchall()]
+        c.execute("SELECT * FROM ecologies WHERE user_id = ?", (user_id,))
+        row = c.fetchone()
+        return dict(row) if row else None
+
+def get_user_stats(user_id: int, week_start: str) -> Dict[str, int]:
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT COUNT(*) AS total_leaves 
+            FROM leaves 
+            WHERE sub_branch_id IN (
+                SELECT id FROM sub_branches 
+                WHERE branch_id IN (
+                    SELECT id FROM branches 
+                    WHERE super_branch_id IN (
+                        SELECT id FROM super_branches 
+                        WHERE tree_id IN (
+                            SELECT id FROM trees 
+                            WHERE forest_id IN (
+                                SELECT id FROM forests 
+                                WHERE ecology_id IN (
+                                    SELECT id FROM ecologies 
+                                    WHERE user_id = ?
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        """, (user_id,))
+        total_leaves = c.fetchone()["total_leaves"]
+        c.execute("""
+            SELECT COUNT(*) AS pending_reviews 
+            FROM reviews 
+            WHERE status = 'pending' 
+            AND target_id IN (
+                SELECT id FROM leaves 
+                WHERE sub_branch_id IN (
+                    SELECT id FROM sub_branches 
+                    WHERE branch_id IN (
+                        SELECT id FROM branches 
+                        WHERE super_branch_id IN (
+                            SELECT id FROM super_branches 
+                            WHERE tree_id IN (
+                                SELECT id FROM trees 
+                                WHERE forest_id IN (
+                                    SELECT id FROM forests 
+                                    WHERE ecology_id IN (
+                                        SELECT id FROM ecologies 
+                                        WHERE user_id = ?
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        """, (user_id,))
+        pending_reviews = c.fetchone()["pending_reviews"]
+        c.execute("""
+            SELECT SUM(estimated_duration) AS scheduled_minutes 
+            FROM reviews 
+            WHERE status = 'pending' 
+            AND target_id IN (
+                SELECT id FROM leaves 
+                WHERE sub_branch_id IN (
+                    SELECT id FROM sub_branches 
+                    WHERE branch_id IN (
+                        SELECT id FROM branches 
+                        WHERE super_branch_id IN (
+                            SELECT id FROM super_branches 
+                            WHERE tree_id IN (
+                                SELECT id FROM trees 
+                                WHERE forest_id IN (
+                                    SELECT id FROM forests 
+                                    WHERE ecology_id IN (
+                                        SELECT id FROM ecologies 
+                                        WHERE user_id = ?
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        """, (user_id,))
+        scheduled_minutes = c.fetchone()["scheduled_minutes"] or 0
+        c.execute("SELECT reviews_completed FROM weekly_stats WHERE week_number = strftime('%W', ?)", (week_start,))
+        row = c.fetchone()
+        completed_reviews = row["reviews_completed"] if row else 0
+        return {
+            "total_leaves": total_leaves,
+            "pending_reviews": pending_reviews,
+            "scheduled_minutes": scheduled_minutes,
+            "completed_reviews": completed_reviews
+        }
 
 def get_hierarchy_overview(user_id:int):
     with get_conn() as conn:
@@ -119,22 +215,21 @@ def get_hierarchy_overview(user_id:int):
 def get_pending_reviews_for_user(user_id:int):
     with get_conn() as conn:
         c = conn.cursor()
-        # select reviews where target belongs to user
         query = """
-            SELECT r.* FROM reviews r
+            SELECT r.* 
+            FROM reviews r
             WHERE r.status='pending' AND EXISTS (
                 SELECT 1 FROM ecologies e
                 WHERE e.user_id = ? AND (
-                    (r.target_type='ecology' AND r.target_id = e.id)
-                    OR (r.target_type='forest' AND r.target_id IN (SELECT id FROM forests WHERE ecology_id=e.id))
-                    OR (r.target_type='tree' AND r.target_id IN (SELECT id FROM trees WHERE forest_id IN (SELECT id FROM forests WHERE ecology_id=e.id)))
-                    OR (r.target_type='super_branch' AND r.target_id IN (SELECT id FROM super_branches WHERE tree_id IN (SELECT id FROM trees WHERE forest_id IN (SELECT id FROM forests WHERE ecology_id=e.id))))
-                    OR (r.target_type='branch' AND r.target_id IN (SELECT id FROM branches WHERE super_branch_id IN (SELECT id FROM super_branches WHERE tree_id IN (SELECT id FROM trees WHERE forest_id IN (SELECT id FROM forests WHERE ecology_id=e.id)) )))
-                    OR (r.target_type='sub_branch' AND r.target_id IN (SELECT id FROM sub_branches WHERE branch_id IN (SELECT id FROM branches WHERE super_branch_id IN (SELECT id FROM super_branches WHERE tree_id IN (SELECT id FROM trees WHERE forest_id IN (SELECT id FROM forests WHERE ecology_id=e.id))))))
-                    OR (r.target_type='leaf' AND r.target_id IN (SELECT id FROM leaves WHERE sub_branch_id IN (SELECT id FROM sub_branches WHERE branch_id IN (SELECT id FROM branches WHERE super_branch_id IN (SELECT id FROM super_branches WHERE tree_id IN (SELECT id FROM trees WHERE forest_id IN (SELECT id FROM forests WHERE ecology_id=e.id)))))))
+                    (r.target_type='ecology' AND r.target_id = e.id) OR
+                    (r.target_type='forest' AND r.target_id IN (SELECT id FROM forests WHERE ecology_id = e.id)) OR
+                    (r.target_type='tree' AND r.target_id IN (SELECT id FROM trees WHERE forest_id IN (SELECT id FROM forests WHERE ecology_id = e.id))) OR
+                    (r.target_type='super_branch' AND r.target_id IN (SELECT id FROM super_branches WHERE tree_id IN (SELECT id FROM trees WHERE forest_id IN (SELECT id FROM forests WHERE ecology_id = e.id)))) OR
+                    (r.target_type='branch' AND r.target_id IN (SELECT id FROM branches WHERE super_branch_id IN (SELECT id FROM super_branches WHERE tree_id IN (SELECT id FROM trees WHERE forest_id IN (SELECT id FROM forests WHERE ecology_id = e.id))))) OR
+                    (r.target_type='sub_branch' AND r.target_id IN (SELECT id FROM sub_branches WHERE branch_id IN (SELECT id FROM branches WHERE super_branch_id IN (SELECT id FROM super_branches WHERE tree_id IN (SELECT id FROM trees WHERE forest_id IN (SELECT id FROM forests WHERE ecology_id = e.id)))))) OR
+                    (r.target_type='leaf' AND r.target_id IN (SELECT id FROM leaves WHERE sub_branch_id IN (SELECT id FROM sub_branches WHERE branch_id IN (SELECT id FROM branches WHERE super_branch_id IN (SELECT id FROM super_branches WHERE tree_id IN (SELECT id FROM trees WHERE forest_id IN (SELECT id FROM forests WHERE ecology_id = e.id)))))))
                 )
             )
         """
         c.execute(query, (user_id,))
         return [dict(r) for r in c.fetchall()]
-

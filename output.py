@@ -1,53 +1,148 @@
 # output.py
-from rich.console import Console
-from rich.table import Table
 from rich.tree import Tree
+from rich import print as rprint
+from rich.table import Table
+from rich.console import Console
+from db import get_conn
+import json
 
 console = Console()
 
 def print_tree(nodes):
-    t = Tree("🌳 Ecology Hierarchy")
-    # nodes: list of dicts from v_hierarchy_overview; we'll print leaves last
-    roots = [n for n in nodes if n["node_type"]=="ecology"]
-    # naive grouping for readability
-    for e in roots:
-        et = t.add(f"📚 Ecology: {e['name']} (id={e['id']})")
-        # find forests with parent_id == e.id
-        forests = [n for n in nodes if n["node_type"]=="forest" and n["parent_id"]==e["id"]]
-        for f in forests:
-            ft = et.add(f"🌲 Forest: {f['name']} (id={f['id']})")
-            trees = [n for n in nodes if n["node_type"]=="tree" and n["parent_id"]==f["id"]]
-            for tr in trees:
-                trt = ft.add(f"🌳 Tree: {tr['name']} (id={tr['id']})")
-                sbs = [n for n in nodes if n["node_type"]=="super_branch" and n["parent_id"]==tr["id"]]
-                for sb in sbs:
-                    sbt = trt.add(f"🔸 SuperBranch: {sb['name']} (id={sb['id']})")
-                    brs = [n for n in nodes if n["node_type"]=="branch" and n["parent_id"]==sb["id"]]
-                    for br in brs:
-                        brt = sbt.add(f"➿ Branch: {br['name']} (id={br['id']})")
-                        sbs2 = [n for n in nodes if n["node_type"]=="sub_branch" and n["parent_id"]==br["id"]]
-                        for s in sbs2:
-                            brt.add(f"🍃 Sub-branch: {s['name']} (id={s['id']})")
-    console.print(t)
+    """Print hierarchy as a tree using rich"""
+    # Find the ecology node to start
+    ecology = next((n for n in nodes if n["node_type"] == "ecology"), None)
+    if not ecology:
+        rprint("[red]No ecology found.[/red]")
+        return
+    tree = Tree(f"[bold green]{ecology['name']}[/bold green] (Ecology, ID: {ecology['id']})")
+    
+    # Organize nodes by parent
+    node_map = {n["id"]: n for n in nodes}
+    children = {t: [] for t in ["ecology", "forest", "tree", "super_branch", "branch", "sub_branch"]}
+    for n in nodes:
+        if n["node_type"] != "ecology" and n["parent_id"]:
+            parent_type = next(p["node_type"] for p in nodes if p["id"] == n["parent_id"])
+            children[parent_type].append(n)
 
-def print_schedule(items):
-    table = Table(title="📅 Schedule")
-    table.add_column("Type")
-    table.add_column("Related")
-    table.add_column("Start")
-    table.add_column("End")
-    table.add_column("Priority", justify="right")
-    for it in items:
-        table.add_row(it.get("type", ""), str(it.get("related")), str(it.get("start")), str(it.get("end")), str(it.get("priority","")))
-    console.print(table)
+    def add_children(parent_node, parent_type, parent_id):
+        for child in children[parent_type]:
+            if child["parent_id"] == parent_id:
+                status_icon = status_icons.get(child["status"], child["status"])
+                child_node = tree.add(f"{status_icon} {child['name']} ({child['node_type'].capitalize()}, ID: {child['id']})")
+                next_type = {
+                    "ecology": "forest",
+                    "forest": "tree",
+                    "tree": "super_branch",
+                    "super_branch": "branch",
+                    "branch": "sub_branch",
+                    "sub_branch": "leaf"
+                }.get(parent_type)
+                if next_type:
+                    add_children(child_node, next_type, child["id"])
 
-def print_reviews(revs):
-    table = Table(title="📝 Reviews")
+    add_children(tree, "forest", ecology["id"])
+    rprint(tree)
+
+def print_reviews(reviews):
+    """Print pending reviews in a table"""
+    table = Table(title="Pending Reviews")
     table.add_column("ID")
     table.add_column("Target")
+    table.add_column("Type")
     table.add_column("Due")
-    table.add_column("Est Duration")
-    for r in revs:
-        table.add_row(str(r["id"]), f"{r['target_type']}:{r['target_id']}", r["scheduled_date"], str(r["estimated_duration"]))
-    console.print(table)
+    table.add_column("Duration (min)")
+    for r in reviews:
+        table.add_row(
+            str(r["id"]),
+            str(r["target_id"]),
+            r["target_type"].capitalize(),
+            r["scheduled_date"],
+            str(r["estimated_duration"])
+        )
+    rprint(table)
 
+def print_schedule(placements):
+    """Print scheduled items in a table"""
+    table = Table(title="Weekly Schedule")
+    table.add_column("Date")
+    table.add_column("Time")
+    table.add_column("Type")
+    table.add_column("Item")
+    table.add_column("Duration (min)")
+    for p in placements:
+        start = p["start_datetime"]
+        table.add_row(
+            start[:10],
+            start[11:16],
+            p["type"].capitalize(),
+            f"{p['related_type'] or ''} ID: {p['related_id'] or ''}",
+            str(p["duration"])
+        )
+    rprint(table)
+
+def print_progress_chart(user_id):
+    """Show a progress chart for leaves"""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT status, COUNT(*) as count 
+            FROM v_leaf_status 
+            WHERE sub_branch_id IN (
+                SELECT id FROM sub_branches 
+                WHERE branch_id IN (
+                    SELECT id FROM branches 
+                    WHERE super_branch_id IN (
+                        SELECT id FROM super_branches 
+                        WHERE tree_id IN (
+                            SELECT id FROM trees 
+                            WHERE forest_id IN (
+                                SELECT id FROM forests 
+                                WHERE ecology_id IN (
+                                    SELECT id FROM ecologies 
+                                    WHERE user_id = ?
+                                )
+                            )
+                        )
+                    )
+                )
+            ) 
+            GROUP BY status
+        """, (user_id,))
+        data = c.fetchall()
+    
+    labels = [row["status"] for row in data]
+    values = [row["count"] for row in data]
+    
+    chart_data = {
+        "type": "bar",
+        "data": {
+            "labels": labels,
+            "datasets": [{
+                "label": "Leaf Status Distribution",
+                "data": values,
+                "backgroundColor": ["#36A2EB", "#FF6384", "#FFCE56"],
+                "borderColor": ["#2A8ABF", "#D94F70", "#D9B13B"],
+                "borderWidth": 1
+            }]
+        },
+        "options": {
+            "scales": {
+                "y": {
+                    "beginAtZero": True,
+                    "title": {"display": True, "text": "Number of Leaves"}
+                },
+                "x": {
+                    "title": {"display": True, "text": "Status"}
+                }
+            },
+            "plugins": {
+                "legend": {"display": True, "position": "top"}
+            }
+        }
+    }
+    
+    console.print("[bold blue]Leaf Progress Chart[/bold blue]")
+    console.print(f"Chart data: {json.dumps(chart_data, indent=2)}")
+    # In a real implementation, this would render a Chart.js chart in a UI
+    # For CLI, we print the JSON structure

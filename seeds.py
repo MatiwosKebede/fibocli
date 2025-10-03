@@ -1,6 +1,6 @@
 # seeds.py - create example user + ecology + some hierarchy and leaves for testing
 from db import init_db
-from models import create_user, create_ecology, create_forest, create_tree, create_super_branch, create_branch, create_sub_branch, insert_leaf, add_sync_queue
+from models import create_user, create_ecology, create_forest, create_tree, create_super_branch, create_branch, create_sub_branch, insert_leaf
 from utils import hash_password, iso_now
 import click
 
@@ -20,10 +20,15 @@ def seed_all():
     bid = create_branch(sbid, "Seed Branch")
     sbb = create_sub_branch(bid, "Seed SubBranch")
     now = iso_now()
+    last_leaf_id = None
     for i in range(1,8):
         lid = insert_leaf(sbb, f"Seed Leaf {i}", "Seed Course", f"SC{i:02}", now)
-    click.echo(f"✅ Seeded user {uid}, ecology {eid} with leaves under subbranch {sbb}")
+        if last_leaf_id:
+            with get_conn() as conn:
+                c = conn.cursor()
+                c.execute("UPDATE leaves SET next_leaf_id = ? WHERE id = ?", (lid, last_leaf_id))
+        last_leaf_id = lid
+    click.echo(f"✅ Seeded user {uid}, ecology {eid} with chained leaves under subbranch {sbb}")
 
 if __name__ == "__main__":
     cli()
-
