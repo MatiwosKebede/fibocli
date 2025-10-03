@@ -1,0 +1,8 @@
+README.md
+setup.py
+learning_ecology_system.egg-info/PKG-INFO
+learning_ecology_system.egg-info/SOURCES.txt
+learning_ecology_system.egg-info/dependency_links.txt
+learning_ecology_system.egg-info/entry_points.txt
+learning_ecology_system.egg-info/requires.txt
+learning_ecology_system.egg-info/top_level.txt

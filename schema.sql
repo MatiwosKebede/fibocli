@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name TEXT NOT NULL,
     username TEXT UNIQUE NOT NULL COLLATE NOCASE,
     email TEXT UNIQUE NOT NULL COLLATE NOCASE,
-    password_hash TEXT NOT NULL,
+    password_hash BLOB NOT NULL, -- Changed to BLOB for bcrypt compatibility
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
     is_deleted BOOLEAN DEFAULT FALSE,
@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS ecologies (
 -- Forests table: Child of ecology (multiple allowed)
 CREATE TABLE IF NOT EXISTS forests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     ecology_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
@@ -148,6 +149,7 @@ CREATE TABLE IF NOT EXISTS forests (
 -- Trees table: Child of forest (multiple allowed)
 CREATE TABLE IF NOT EXISTS trees (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     forest_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
@@ -173,6 +175,7 @@ CREATE TABLE IF NOT EXISTS trees (
 -- Super-branches table: Child of tree (multiple allowed)
 CREATE TABLE IF NOT EXISTS super_branches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     tree_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
@@ -198,6 +201,7 @@ CREATE TABLE IF NOT EXISTS super_branches (
 -- Branches table: Child of super-branch (multiple allowed)
 CREATE TABLE IF NOT EXISTS branches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     super_branch_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
@@ -223,6 +227,7 @@ CREATE TABLE IF NOT EXISTS branches (
 -- Sub-branches table: Child of branch (multiple allowed)
 CREATE TABLE IF NOT EXISTS sub_branches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     branch_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
@@ -248,10 +253,12 @@ CREATE TABLE IF NOT EXISTS sub_branches (
 -- Leaves table: Child of sub-branch (multiple allowed) with study-specific fields
 CREATE TABLE IF NOT EXISTS leaves (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     sub_branch_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
     course_code TEXT,
+    resource_type TEXT NOT NULL DEFAULT 'other' CHECK (resource_type IN ('book', 'video', 'web_course', 'other')),
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
@@ -386,7 +393,8 @@ CREATE TABLE IF NOT EXISTS streaks (
     streak_start DATE,
     streak_end DATE,
     current_length INTEGER DEFAULT 0,
-    longest_length INTEGER DEFAULT 0
+    longest_length INTEGER DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Readiness Heatmap Table
@@ -394,7 +402,8 @@ CREATE TABLE IF NOT EXISTS daily_readiness (
     user_id INTEGER,
     date DATE,
     readiness_score REAL,
-    PRIMARY KEY(user_id, date)
+    PRIMARY KEY(user_id, date),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Wave relationships table for linking parent-child waves
@@ -407,6 +416,49 @@ CREATE TABLE IF NOT EXISTS wave_relationships (
     FOREIGN KEY(child_wave_id) REFERENCES waves(id)
 );
 
+-- Triggers for user_id propagation
+CREATE TRIGGER IF NOT EXISTS trg_forests_user_id
+AFTER INSERT ON forests
+FOR EACH ROW
+BEGIN
+    UPDATE forests SET user_id = (SELECT user_id FROM ecologies WHERE id = NEW.ecology_id) WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_trees_user_id
+AFTER INSERT ON trees
+FOR EACH ROW
+BEGIN
+    UPDATE trees SET user_id = (SELECT user_id FROM forests WHERE id = NEW.forest_id) WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_super_branches_user_id
+AFTER INSERT ON super_branches
+FOR EACH ROW
+BEGIN
+    UPDATE super_branches SET user_id = (SELECT user_id FROM trees WHERE id = NEW.tree_id) WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_branches_user_id
+AFTER INSERT ON branches
+FOR EACH ROW
+BEGIN
+    UPDATE branches SET user_id = (SELECT user_id FROM super_branches WHERE id = NEW.super_branch_id) WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_sub_branches_user_id
+AFTER INSERT ON sub_branches
+FOR EACH ROW
+BEGIN
+    UPDATE sub_branches SET user_id = (SELECT user_id FROM branches WHERE id = NEW.branch_id) WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_leaves_user_id
+AFTER INSERT ON leaves
+FOR EACH ROW
+BEGIN
+    UPDATE leaves SET user_id = (SELECT user_id FROM sub_branches WHERE id = NEW.sub_branch_id) WHERE id = NEW.id;
+END;
+
 -- Indexes for performance optimization in offline scenario
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -415,11 +467,17 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token);
 CREATE INDEX IF NOT EXISTS idx_ecologies_user_id ON ecologies(user_id);
 CREATE INDEX IF NOT EXISTS idx_forests_ecology_id ON forests(ecology_id);
+CREATE INDEX IF NOT EXISTS idx_forests_user_id ON forests(user_id);
 CREATE INDEX IF NOT EXISTS idx_trees_forest_id ON trees(forest_id);
+CREATE INDEX IF NOT EXISTS idx_trees_user_id ON trees(user_id);
 CREATE INDEX IF NOT EXISTS idx_super_branches_tree_id ON super_branches(tree_id);
+CREATE INDEX IF NOT EXISTS idx_super_branches_user_id ON super_branches(user_id);
 CREATE INDEX IF NOT EXISTS idx_branches_super_branch_id ON branches(super_branch_id);
+CREATE INDEX IF NOT EXISTS idx_branches_user_id ON branches(user_id);
 CREATE INDEX IF NOT EXISTS idx_sub_branches_branch_id ON sub_branches(branch_id);
+CREATE INDEX IF NOT EXISTS idx_sub_branches_user_id ON sub_branches(user_id);
 CREATE INDEX IF NOT EXISTS idx_leaves_sub_branch_id ON leaves(sub_branch_id);
+CREATE INDEX IF NOT EXISTS idx_leaves_user_id ON leaves(user_id);
 CREATE INDEX IF NOT EXISTS idx_waves_user_id ON waves(user_id);
 CREATE INDEX IF NOT EXISTS idx_waves_parent ON waves(parent_type, parent_id);
 CREATE INDEX IF NOT EXISTS idx_waves_status ON waves(status);
@@ -465,6 +523,7 @@ SELECT
     l.id,
     l.sub_branch_id,
     l.name,
+    l.resource_type,
     COUNT(r.id) AS total_scheduled_reviews,
     COUNT(CASE WHEN r.status = 'completed' THEN 1 END) AS completed_reviews,
     CASE 
