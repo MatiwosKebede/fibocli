@@ -4,8 +4,8 @@ from contextlib import contextmanager
 import os
 from typing import Iterator
 
-DB_PATH = os.environ.get("ECOLOGY_DB", "ecology.db")
-SCHEMA_FILE = os.environ.get("ECOLOGY_SCHEMA", "schema.sql")
+DB_PATH = os.environ.get("ECOLOGY_DB", "/mnt/c/Users/HP/Documents/METS/forest-v4/fibocli/ecology.db")
+SCHEMA_FILE = os.environ.get("ECOLOGY_SCHEMA", "/mnt/c/Users/HP/Documents/METS/forest-v4/fibocli/schema.sql")
 
 def _make_conn():
     try:
@@ -29,32 +29,29 @@ def get_conn() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 def init_db(overwrite: bool = False) -> None:
-    """Create DB file using schema.sql. overwrite deletes existing DB first."""
+    """Create DB file using schema.sql. Overwrite deletes existing DB first."""
     if overwrite and os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
+        try:
+            os.remove(DB_PATH)
+            print(f"Deleted existing database: {DB_PATH}")
+        except OSError as e:
+            raise RuntimeError(f"Error deleting database: {e}")
     if not os.path.exists(DB_PATH):
         if not os.path.exists(SCHEMA_FILE):
-            raise FileNotFoundError("schema.sql not found; please place your full schema at schema.sql")
+            raise FileNotFoundError(f"schema.sql not found at {SCHEMA_FILE}")
         with open(SCHEMA_FILE, 'r', encoding='utf-8') as f:
             schema = f.read()
         conn = sqlite3.connect(DB_PATH)
         try:
-            c = conn.cursor()
-            # Split schema into individual statements for better error reporting
-            statements = schema.split(';')
-            for stmt in statements:
-                stmt = stmt.strip()
-                if stmt:
-                    try:
-                        c.execute(stmt)
-                    except sqlite3.Error as e:
-                        raise RuntimeError(f"Error executing SQL: {stmt}\nError: {e}")
+            conn.executescript(schema)
             conn.commit()
+            print("✅ Database initialized successfully.")
         except sqlite3.Error as e:
             conn.rollback()
-            raise RuntimeError(f"Database initialization error: {e}")
+            raise RuntimeError(f"Database initialization error: {e}\nCheck schema.sql for syntax errors.")
         finally:
             conn.close()
     else:
         with get_conn() as conn:
             conn.execute("PRAGMA optimize;")
+            print("Database already exists, optimized.")

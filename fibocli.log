@@ -1,0 +1,7 @@
+2025-10-03 16:56:22,153 ERROR: Error in init_db: unable to open database file
+2025-10-03 16:56:22,156 ERROR: Error initializing DB: unable to open database file
+2025-10-03 16:57:46,661 INFO: Database initialized
+2025-10-03 16:58:40,231 INFO: User 1 logged in
+2025-10-03 16:58:51,746 INFO: Displayed stats for user 1 week 2025-10-03
+2025-10-03 16:59:03,189 ERROR: Error displaying tree: name 'sqlite3' is not defined
+2025-10-03 16:59:37,314 ERROR: Error displaying tree: Database operation error: no such column: vbp.difficulty
