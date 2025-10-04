@@ -335,7 +335,13 @@ def list_nodes(node_type):
         if node_type == "leaf":
             table.add_column("Resource Type")
         for node in nodes:
-            row = [str(node["id"]), node["name"], node.get("course_name", "N/A"), node.get("course_code", "N/A")]
+            row = [
+    str(node["id"]),
+    node["name"],
+    node["course_name"] if "course_name" in node.keys() else "N/A",
+    node["course_code"] if "course_code" in node.keys() else "N/A"
+]
+
             if node_type == "leaf":
                 c.execute("SELECT resource_type FROM leaves WHERE id = ?", (node["id"],))
                 resource_type = c.fetchone()
