@@ -133,18 +133,27 @@ def print_progress_chart(user_id):
         )
         data = c.fetchall()
     
+    if not data:
+        console.print("[yellow]No leaf data available for progress chart.[/yellow]")
+        return
+    
     labels = [f"{row['status'].capitalize()} ({row['resource_type'].capitalize()})" for row in data]
     values = [row["count"] for row in data]
     
-    chart_data = {
+    # Dynamically cycle colors to handle varying data sizes
+    colors = ["#36A2EB", "#FF6384", "#FFCE56", "#4BC0C0", "#9966FF", "#FF9F40"]
+    background_colors = [colors[i % len(colors)] for i in range(len(data))]
+    border_colors = [colors[i % len(colors)] for i in range(len(data))]
+    
+    chart = {
         "type": "bar",
         "data": {
             "labels": labels,
             "datasets": [{
                 "label": "Leaf Status by Resource Type",
                 "data": values,
-                "backgroundColor": ["#36A2EB", "#FF6384", "#FFCE56", "#4BC0C0"],
-                "borderColor": ["#2A8ABF", "#D94F70", "#D9B13B", "#3B9EA0"],
+                "backgroundColor": background_colors,
+                "borderColor": border_colors,
                 "borderWidth": 1
             }]
         },
@@ -165,4 +174,4 @@ def print_progress_chart(user_id):
     }
     
     console.print("[bold blue]Leaf Progress Chart[/bold blue]")
-    console.print(f"Chart data: {json.dumps(chart_data, indent=2)}")
+    console.print(f"Chart: {json.dumps(chart, indent=2)}")

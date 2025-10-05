@@ -43,7 +43,7 @@ def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_cou
         now = datetime.datetime.utcnow().isoformat()
 
         last_id = None
-        table_name = parent_type + "s" if parent_type != "sub_branch" else "sub_branches"
+        table_name = parent_type + "s" if parent_type != "sub_branch" else "sub_branches" 
         child_table = {
             "ecology": "forests",
             "forest": "trees",
@@ -146,8 +146,20 @@ def schedule_reviews_for_user(user_id: int, limit: int = 500) -> List[Dict[str, 
     node_types = ["ecology", "forest", "tree", "super_branch", "branch", "sub_branch", "leaf"]
     with get_conn() as conn:
         c = conn.cursor()
+        # Map node_type to correct table name
+        table_map = {
+            "ecology": "ecologies",
+            "forest": "forests",
+            "tree": "trees",
+            "super_branch": "super_branches",
+            "branch": "branches",
+            "sub_branch": "sub_branches",
+            "leaf": "leaves"
+        }
         for node_type in node_types:
-            table_name = node_type + "s" if node_type != "sub_branch" else "sub_branches"
+            table_name = table_map.get(node_type)
+            if not table_name:
+                raise ValueError(f"Invalid node_type: {node_type}")
             c.execute(
                 f"SELECT id, name, course_name, understanding_level, difficulty, importance, completion_days, "
                 f"fibonacci_index, review_count, base_time_minutes, study_duration_minutes "
@@ -187,7 +199,6 @@ def schedule_reviews_for_user(user_id: int, limit: int = 500) -> List[Dict[str, 
                     "estimated_duration": est_dur
                 })
     return scheduled
-
 def schedule_integration_review(user_id: int, target_type: str, target_id: int, fib_index: int) -> None:
     user_settings = get_user_settings(user_id)
     with get_conn() as conn:

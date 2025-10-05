@@ -4,6 +4,12 @@
 -- Run with: sqlite3 ecology.db < schema.sql
 
 -- PRAGMA settings optimized for offline single-user application
+-- schema.sql for ecology.db
+-- Enhanced SQLite3 schema for fully offline Learning Ecology System
+-- Optimized for offline use with performance, integrity, and data consistency
+-- Run with: sqlite3 ecology.db < schema.sql
+
+-- PRAGMA settings optimized for offline single-user application
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -18,7 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name TEXT NOT NULL,
     username TEXT UNIQUE NOT NULL COLLATE NOCASE,
     email TEXT UNIQUE NOT NULL COLLATE NOCASE,
-    password_hash BLOB NOT NULL, -- Changed to BLOB for bcrypt compatibility
+    password_hash BLOB NOT NULL,
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
     is_deleted BOOLEAN DEFAULT FALSE,
@@ -71,6 +77,7 @@ CREATE TABLE IF NOT EXISTS settings (
     R_decay_cap INTEGER DEFAULT 10 CHECK (R_decay_cap > 0),
     R_threshold REAL DEFAULT 0.7 CHECK (R_threshold BETWEEN 0 AND 1),
     calendar_max_hours_per_day TEXT DEFAULT '[8,8,8,8,8,8,8]' CHECK (json_valid(calendar_max_hours_per_day)),
+    base_time_minutes INTEGER DEFAULT 30 CHECK (base_time_minutes > 0),
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -82,7 +89,7 @@ CREATE TABLE IF NOT EXISTS fibonacci (
     value INTEGER NOT NULL CHECK (value >= 0)
 );
 
--- Insert Fibonacci sequence in smaller batches to avoid parser issues
+-- Insert Fibonacci sequence (unchanged)
 INSERT OR IGNORE INTO fibonacci (fib_index, value) VALUES
 (1, 1), (2, 1), (3, 2), (4, 3), (5, 5), (6, 8), (7, 13), (8, 21), (9, 34), (10, 55),
 (11, 89), (12, 144), (13, 233), (14, 377), (15, 610), (16, 987), (17, 1597), (18, 2584), (19, 4181), (20, 6765);
@@ -106,182 +113,193 @@ CREATE TABLE IF NOT EXISTS ecologies (
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    understanding_level REAL DEFAULT 0.0 CHECK (understanding_level BETWEEN 0 AND 1),
-    completion_days INTEGER DEFAULT 0 CHECK (completion_days >= 0),
-    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
-    fibonacci_index INTEGER DEFAULT 1 CHECK (fibonacci_index > 0),
-    next_review_date DATETIME,
-    review_estimated_duration_minutes INTEGER DEFAULT 0 CHECK (review_estimated_duration_minutes >= 0),
-    importance REAL DEFAULT 0.5 CHECK (importance BETWEEN 0 AND 1),
-    difficulty INTEGER DEFAULT 3 CHECK (difficulty BETWEEN 1 AND 5),
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
-    metadata TEXT,
+    understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
+    difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
+    importance REAL CHECK (importance BETWEEN 0 AND 1),
+    completion_days INTEGER CHECK (completion_days >= 0),
+    fibonacci_index INTEGER CHECK (fibonacci_index >= 1),
+    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
+    review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
+    next_review_date DATETIME,
+    metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
+    base_time_minutes INTEGER CHECK (base_time_minutes > 0),
+    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Forests table: Child of ecology (multiple allowed)
+-- Forests table
 CREATE TABLE IF NOT EXISTS forests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     ecology_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
     course_code TEXT,
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    understanding_level REAL DEFAULT 0.0 CHECK (understanding_level BETWEEN 0 AND 1),
-    completion_days INTEGER DEFAULT 0 CHECK (completion_days >= 0),
-    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
-    fibonacci_index INTEGER DEFAULT 1 CHECK (fibonacci_index > 0),
-    next_review_date DATETIME,
-    review_estimated_duration_minutes INTEGER DEFAULT 0 CHECK (review_estimated_duration_minutes >= 0),
-    importance REAL DEFAULT 0.5 CHECK (importance BETWEEN 0 AND 1),
-    difficulty INTEGER DEFAULT 3 CHECK (difficulty BETWEEN 1 AND 5),
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
-    metadata TEXT,
-    next_forest_id INTEGER DEFAULT NULL,
-    FOREIGN KEY (ecology_id) REFERENCES ecologies(id) ON DELETE CASCADE
+    understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
+    difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
+    importance REAL CHECK (importance BETWEEN 0 AND 1),
+    completion_days INTEGER CHECK (completion_days >= 0),
+    fibonacci_index INTEGER CHECK (fibonacci_index >= 1),
+    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
+    review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
+    next_review_date DATETIME,
+    metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
+    base_time_minutes INTEGER CHECK (base_time_minutes > 0),
+    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    FOREIGN KEY (ecology_id) REFERENCES ecologies(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Trees table: Child of forest (multiple allowed)
+-- Trees table
 CREATE TABLE IF NOT EXISTS trees (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     forest_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
     course_code TEXT,
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    understanding_level REAL DEFAULT 0.0 CHECK (understanding_level BETWEEN 0 AND 1),
-    completion_days INTEGER DEFAULT 0 CHECK (completion_days >= 0),
-    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
-    fibonacci_index INTEGER DEFAULT 1 CHECK (fibonacci_index > 0),
-    next_review_date DATETIME,
-    review_estimated_duration_minutes INTEGER DEFAULT 0 CHECK (review_estimated_duration_minutes >= 0),
-    importance REAL DEFAULT 0.5 CHECK (importance BETWEEN 0 AND 1),
-    difficulty INTEGER DEFAULT 3 CHECK (difficulty BETWEEN 1 AND 5),
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
-    metadata TEXT,
-    next_tree_id INTEGER DEFAULT NULL,
-    FOREIGN KEY (forest_id) REFERENCES forests(id) ON DELETE CASCADE
+    understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
+    difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
+    importance REAL CHECK (importance BETWEEN 0 AND 1),
+    completion_days INTEGER CHECK (completion_days >= 0),
+    fibonacci_index INTEGER CHECK (fibonacci_index >= 1),
+    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
+    review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
+    next_review_date DATETIME,
+    metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
+    base_time_minutes INTEGER CHECK (base_time_minutes > 0),
+    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    FOREIGN KEY (forest_id) REFERENCES forests(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Super-branches table: Child of tree (multiple allowed)
+-- Super Branches table
 CREATE TABLE IF NOT EXISTS super_branches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     tree_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
     course_code TEXT,
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    understanding_level REAL DEFAULT 0.0 CHECK (understanding_level BETWEEN 0 AND 1),
-    completion_days INTEGER DEFAULT 0 CHECK (completion_days >= 0),
-    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
-    fibonacci_index INTEGER DEFAULT 1 CHECK (fibonacci_index > 0),
-    next_review_date DATETIME,
-    review_estimated_duration_minutes INTEGER DEFAULT 0 CHECK (review_estimated_duration_minutes >= 0),
-    importance REAL DEFAULT 0.5 CHECK (importance BETWEEN 0 AND 1),
-    difficulty INTEGER DEFAULT 3 CHECK (difficulty BETWEEN 1 AND 5),
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
-    metadata TEXT,
-    next_super_branch_id INTEGER DEFAULT NULL,
-    FOREIGN KEY (tree_id) REFERENCES trees(id) ON DELETE CASCADE
+    understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
+    difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
+    importance REAL CHECK (importance BETWEEN 0 AND 1),
+    completion_days INTEGER CHECK (completion_days >= 0),
+    fibonacci_index INTEGER CHECK (fibonacci_index >= 1),
+    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
+    review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
+    next_review_date DATETIME,
+    metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
+    base_time_minutes INTEGER CHECK (base_time_minutes > 0),
+    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    FOREIGN KEY (tree_id) REFERENCES trees(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Branches table: Child of super-branch (multiple allowed)
+-- Branches table
 CREATE TABLE IF NOT EXISTS branches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     super_branch_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
     course_code TEXT,
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    understanding_level REAL DEFAULT 0.0 CHECK (understanding_level BETWEEN 0 AND 1),
-    completion_days INTEGER DEFAULT 0 CHECK (completion_days >= 0),
-    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
-    fibonacci_index INTEGER DEFAULT 1 CHECK (fibonacci_index > 0),
-    next_review_date DATETIME,
-    review_estimated_duration_minutes INTEGER DEFAULT 0 CHECK (review_estimated_duration_minutes >= 0),
-    importance REAL DEFAULT 0.5 CHECK (importance BETWEEN 0 AND 1),
-    difficulty INTEGER DEFAULT 3 CHECK (difficulty BETWEEN 1 AND 5),
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
-    metadata TEXT,
-    next_branch_id INTEGER DEFAULT NULL,
-    FOREIGN KEY (super_branch_id) REFERENCES super_branches(id) ON DELETE CASCADE
+    understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
+    difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
+    importance REAL CHECK (importance BETWEEN 0 AND 1),
+    completion_days INTEGER CHECK (completion_days >= 0),
+    fibonacci_index INTEGER CHECK (fibonacci_index >= 1),
+    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
+    review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
+    next_review_date DATETIME,
+    metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
+    base_time_minutes INTEGER CHECK (base_time_minutes > 0),
+    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    FOREIGN KEY (super_branch_id) REFERENCES super_branches(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Sub-branches table: Child of branch (multiple allowed)
+-- Sub Branches table
 CREATE TABLE IF NOT EXISTS sub_branches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     branch_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
     course_code TEXT,
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    understanding_level REAL DEFAULT 0.0 CHECK (understanding_level BETWEEN 0 AND 1),
-    completion_days INTEGER DEFAULT 0 CHECK (completion_days >= 0),
-    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
-    fibonacci_index INTEGER DEFAULT 1 CHECK (fibonacci_index > 0),
-    next_review_date DATETIME,
-    review_estimated_duration_minutes INTEGER DEFAULT 0 CHECK (review_estimated_duration_minutes >= 0),
-    importance REAL DEFAULT 0.5 CHECK (importance BETWEEN 0 AND 1),
-    difficulty INTEGER DEFAULT 3 CHECK (difficulty BETWEEN 1 AND 5),
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
     is_deleted BOOLEAN DEFAULT FALSE,
-    metadata TEXT,
-    next_sub_branch_id INTEGER DEFAULT NULL,
-    FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+    understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
+    difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
+    importance REAL CHECK (importance BETWEEN 0 AND 1),
+    completion_days INTEGER CHECK (completion_days >= 0),
+    fibonacci_index INTEGER CHECK (fibonacci_index >= 1),
+    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
+    review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
+    next_review_date DATETIME,
+    metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
+    base_time_minutes INTEGER CHECK (base_time_minutes > 0),
+    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Leaves table: Child of sub-branch (multiple allowed) with study-specific fields
+-- Leaves table
 CREATE TABLE IF NOT EXISTS leaves (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     sub_branch_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
     course_name TEXT,
     course_code TEXT,
-    resource_type TEXT NOT NULL DEFAULT 'other' CHECK (resource_type IN ('book', 'video', 'web_course', 'other')),
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    understanding_level REAL DEFAULT 0.0 CHECK (understanding_level BETWEEN 0 AND 1),
-    study_duration_minutes INTEGER DEFAULT 0 CHECK (study_duration_minutes >= 0),
-    base_time_minutes INTEGER DEFAULT 5 CHECK (base_time_minutes > 0),
-    base_completion_days INTEGER DEFAULT 4 CHECK (base_completion_days > 0),
-    completion_days INTEGER DEFAULT 0 CHECK (completion_days >= 0),
-    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
-    fibonacci_index INTEGER DEFAULT 1 CHECK (fibonacci_index > 0),
-    next_review_date DATETIME,
-    review_estimated_duration_minutes INTEGER DEFAULT 0 CHECK (review_estimated_duration_minutes >= 0),
-    importance REAL DEFAULT 0.5 CHECK (importance BETWEEN 0 AND 1),
-    difficulty INTEGER DEFAULT 3 CHECK (difficulty BETWEEN 1 AND 5),
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
-    size_target INTEGER DEFAULT 1 CHECK (size_target > 0),
     is_deleted BOOLEAN DEFAULT FALSE,
-    metadata TEXT,
-    next_leaf_id INTEGER DEFAULT NULL,
-    FOREIGN KEY (sub_branch_id) REFERENCES sub_branches(id) ON DELETE CASCADE
+    understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
+    difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
+    importance REAL CHECK (importance BETWEEN 0 AND 1),
+    completion_days INTEGER CHECK (completion_days >= 0),
+    fibonacci_index INTEGER CHECK (fibonacci_index >= 1),
+    review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
+    review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
+    next_review_date DATETIME,
+    metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
+    resource_type TEXT CHECK (resource_type IN ('video', 'text', 'quiz', 'exercise', 'other')),
+    next_leaf_id INTEGER,
+    base_time_minutes INTEGER CHECK (base_time_minutes > 0),
+    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    FOREIGN KEY (sub_branch_id) REFERENCES sub_branches(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (next_leaf_id) REFERENCES leaves(id) ON DELETE SET NULL
 );
 
--- Waves table: Tracks planting waves for hierarchical progression
 CREATE TABLE IF NOT EXISTS waves (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
