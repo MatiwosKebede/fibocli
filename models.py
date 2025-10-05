@@ -499,19 +499,7 @@ def get_available_parents(parent_type: str, user_id: int) -> List[Dict[str, Any]
     """Get available parent nodes for the given type and user."""
     with get_conn() as conn:
         c = conn.cursor()
-        # Map parent_type to correct table name
-        table_map = {
-            "ecology": "ecologies",
-            "forest": "forests",
-            "tree": "trees",
-            "super_branch": "super_branches",
-            "branch": "branches",
-            "sub_branch": "sub_branches"
-        }
-        table = table_map.get(parent_type)
-        if not table:
-            raise ValueError(f"Invalid parent_type: {parent_type}")
-
+        table = parent_type + "s" if parent_type != "sub_branch" else "sub_branches"
         if parent_type == "ecology":
             c.execute(
                 f"""
@@ -526,7 +514,7 @@ def get_available_parents(parent_type: str, user_id: int) -> List[Dict[str, Any]
                 f"""
                 SELECT f.id, f.name, f.course_name, f.course_code, e.name || ' > ' || f.name AS path
                 FROM {table} f JOIN ecologies e ON f.ecology_id = e.id
-                WHERE f.user_id = ? AND f.is_deleted = 0 AND e.is_deleted = 0
+                WHERE f.user_id = ? AND f.is_deleted = 0
                 """, 
                 (user_id,)
             )
@@ -535,7 +523,7 @@ def get_available_parents(parent_type: str, user_id: int) -> List[Dict[str, Any]
                 f"""
                 SELECT t.id, t.name, t.course_name, t.course_code, e.name || ' > ' || f.name || ' > ' || t.name AS path
                 FROM {table} t JOIN forests f ON t.forest_id = f.id JOIN ecologies e ON f.ecology_id = e.id
-                WHERE t.user_id = ? AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0
+                WHERE t.user_id = ? AND t.is_deleted = 0
                 """, 
                 (user_id,)
             )
@@ -545,7 +533,7 @@ def get_available_parents(parent_type: str, user_id: int) -> List[Dict[str, Any]
                 SELECT s.id, s.name, s.course_name, s.course_code, e.name || ' > ' || f.name || ' > ' || t.name || ' > ' || s.name AS path
                 FROM {table} s JOIN trees t ON s.tree_id = t.id
                 JOIN forests f ON t.forest_id = f.id JOIN ecologies e ON f.ecology_id = e.id
-                WHERE s.user_id = ? AND s.is_deleted = 0 AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0
+                WHERE s.user_id = ? AND s.is_deleted = 0
                 """, 
                 (user_id,)
             )
@@ -555,7 +543,7 @@ def get_available_parents(parent_type: str, user_id: int) -> List[Dict[str, Any]
                 SELECT b.id, b.name, b.course_name, b.course_code, e.name || ' > ' || f.name || ' > ' || t.name || ' > ' || s.name || ' > ' || b.name AS path
                 FROM {table} b JOIN super_branches s ON b.super_branch_id = s.id
                 JOIN trees t ON s.tree_id = t.id JOIN forests f ON t.forest_id = f.id JOIN ecologies e ON f.ecology_id = e.id
-                WHERE b.user_id = ? AND b.is_deleted = 0 AND s.is_deleted = 0 AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0
+                WHERE b.user_id = ? AND b.is_deleted = 0
                 """, 
                 (user_id,)
             )
@@ -566,7 +554,7 @@ def get_available_parents(parent_type: str, user_id: int) -> List[Dict[str, Any]
                 FROM {table} sb JOIN branches b ON sb.branch_id = b.id
                 JOIN super_branches s ON b.super_branch_id = s.id JOIN trees t ON s.tree_id = t.id
                 JOIN forests f ON t.forest_id = f.id JOIN ecologies e ON f.ecology_id = e.id
-                WHERE sb.user_id = ? AND sb.is_deleted = 0 AND b.is_deleted = 0 AND s.is_deleted = 0 AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0
+                WHERE sb.user_id = ? AND is_deleted = 0
                 """, 
                 (user_id,)
             )

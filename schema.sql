@@ -4,12 +4,6 @@
 -- Run with: sqlite3 ecology.db < schema.sql
 
 -- PRAGMA settings optimized for offline single-user application
--- schema.sql for ecology.db
--- Enhanced SQLite3 schema for fully offline Learning Ecology System
--- Optimized for offline use with performance, integrity, and data consistency
--- Run with: sqlite3 ecology.db < schema.sql
-
--- PRAGMA settings optimized for offline single-user application
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -92,15 +86,9 @@ CREATE TABLE IF NOT EXISTS fibonacci (
 -- Insert Fibonacci sequence (unchanged)
 INSERT OR IGNORE INTO fibonacci (fib_index, value) VALUES
 (1, 1), (2, 1), (3, 2), (4, 3), (5, 5), (6, 8), (7, 13), (8, 21), (9, 34), (10, 55),
-(11, 89), (12, 144), (13, 233), (14, 377), (15, 610), (16, 987), (17, 1597), (18, 2584), (19, 4181), (20, 6765);
-
-INSERT OR IGNORE INTO fibonacci (fib_index, value) VALUES
-(21, 10946), (22, 17711), (23, 28657), (24, 46368), (25, 75025), (26, 121393), (27, 196418), (28, 317811), (29, 514229), (30, 832040);
-
-INSERT OR IGNORE INTO fibonacci (fib_index, value) VALUES
-(31, 1346269), (32, 2178309), (33, 3524578), (34, 5702887), (35, 9227465), (36, 14930352), (37, 24157817), (38, 39088169), (39, 63245986), (40, 102334155);
-
-INSERT OR IGNORE INTO fibonacci (fib_index, value) VALUES
+(11, 89), (12, 144), (13, 233), (14, 377), (15, 610), (16, 987), (17, 1597), (18, 2584), (19, 4181), (20, 6765),
+(21, 10946), (22, 17711), (23, 28657), (24, 46368), (25, 75025), (26, 121393), (27, 196418), (28, 317811), (29, 514229), (30, 832040),
+(31, 1346269), (32, 2178309), (33, 3524578), (34, 5702887), (35, 9227465), (36, 14930352), (37, 24157817), (38, 39088169), (39, 63245986), (40, 102334155),
 (41, 165580141), (42, 267914296), (43, 433494437), (44, 701408733), (45, 1134903170), (46, 1836311903), (47, 2971215073), (48, 4807526976), (49, 7778742049), (50, 12586269025);
 
 -- Ecologies table: Top-level node (one per user) with comprehensive metadata
@@ -126,7 +114,9 @@ CREATE TABLE IF NOT EXISTS ecologies (
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    next_forest_id INTEGER,  -- Added for chaining
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (next_forest_id) REFERENCES forests(id) ON DELETE SET NULL
 );
 
 -- Forests table
@@ -153,8 +143,10 @@ CREATE TABLE IF NOT EXISTS forests (
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    next_tree_id INTEGER,  -- Added for chaining
     FOREIGN KEY (ecology_id) REFERENCES ecologies(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (next_tree_id) REFERENCES trees(id) ON DELETE SET NULL
 );
 
 -- Trees table
@@ -178,11 +170,15 @@ CREATE TABLE IF NOT EXISTS trees (
     review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
     review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
     next_review_date DATETIME,
+    next_tree_id INTEGER,  -- Added for chaining
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    next_super_branch_id INTEGER,  -- Added for chaining
     FOREIGN KEY (forest_id) REFERENCES forests(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (next_tree_id) REFERENCES trees(id) ON DELETE SET NULL,
+    FOREIGN KEY (next_super_branch_id) REFERENCES super_branches(id) ON DELETE SET NULL
 );
 
 -- Super Branches table
@@ -209,8 +205,10 @@ CREATE TABLE IF NOT EXISTS super_branches (
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    next_branch_id INTEGER,  -- Added for chaining
     FOREIGN KEY (tree_id) REFERENCES trees(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (next_branch_id) REFERENCES branches(id) ON DELETE SET NULL
 );
 
 -- Branches table
@@ -237,8 +235,10 @@ CREATE TABLE IF NOT EXISTS branches (
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    next_sub_branch_id INTEGER,  -- Added for chaining
     FOREIGN KEY (super_branch_id) REFERENCES super_branches(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (next_sub_branch_id) REFERENCES sub_branches(id) ON DELETE SET NULL
 );
 
 -- Sub Branches table
@@ -265,12 +265,14 @@ CREATE TABLE IF NOT EXISTS sub_branches (
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    next_leaf_id INTEGER,  -- Already present for chaining leaves
     FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (next_leaf_id) REFERENCES leaves(id) ON DELETE SET NULL
 );
 
 -- Leaves table
-CREATE TABLE IF NOT EXISTS leaves (
+CREATE TABLE leaves (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sub_branch_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
@@ -291,15 +293,37 @@ CREATE TABLE IF NOT EXISTS leaves (
     review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
     next_review_date DATETIME,
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
-    resource_type TEXT CHECK (resource_type IN ('video', 'text', 'quiz', 'exercise', 'other')),
+    resource_type TEXT CHECK (resource_type IN ('book', 'video', 'text', 'quiz', 'exercise', 'other')),
     next_leaf_id INTEGER,
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
-    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0), base_completion_days INTEGER DEFAULT 3,
     FOREIGN KEY (sub_branch_id) REFERENCES sub_branches(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (next_leaf_id) REFERENCES leaves(id) ON DELETE SET NULL
 );
-
+CREATE TRIGGER trg_leaves_user_id
+AFTER INSERT ON leaves
+FOR EACH ROW
+BEGIN
+    UPDATE leaves SET user_id = (SELECT user_id FROM sub_branches WHERE id = NEW.sub_branch_id) WHERE id = NEW.id;
+END;
+CREATE INDEX idx_leaves_sub_branch_id ON leaves(sub_branch_id);
+CREATE INDEX idx_leaves_user_id ON leaves(user_id);
+CREATE INDEX idx_leaves_next_leaf_id ON leaves(next_leaf_id);
+CREATE INDEX idx_leaves_next_review_date ON leaves(next_review_date);
+CREATE INDEX idx_leaves_status ON leaves(status);
+CREATE TRIGGER trg_validate_metadata_json_leaf_insert
+BEFORE INSERT ON leaves
+FOR EACH ROW WHEN NEW.metadata IS NOT NULL
+BEGIN
+    SELECT CASE WHEN NOT json_valid(NEW.metadata) THEN RAISE(ABORT, 'Invalid JSON in metadata') END;
+END;
+CREATE TRIGGER trg_validate_metadata_json_leaf_update
+BEFORE UPDATE ON leaves
+FOR EACH ROW WHEN NEW.metadata IS NOT NULL
+BEGIN
+    SELECT CASE WHEN NOT json_valid(NEW.metadata) THEN RAISE(ABORT, 'Invalid JSON in metadata') END;
+END;
 CREATE TABLE IF NOT EXISTS waves (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -486,16 +510,22 @@ CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tok
 CREATE INDEX IF NOT EXISTS idx_ecologies_user_id ON ecologies(user_id);
 CREATE INDEX IF NOT EXISTS idx_forests_ecology_id ON forests(ecology_id);
 CREATE INDEX IF NOT EXISTS idx_forests_user_id ON forests(user_id);
+CREATE INDEX IF NOT EXISTS idx_forests_next_tree_id ON forests(next_tree_id);
 CREATE INDEX IF NOT EXISTS idx_trees_forest_id ON trees(forest_id);
 CREATE INDEX IF NOT EXISTS idx_trees_user_id ON trees(user_id);
+CREATE INDEX IF NOT EXISTS idx_trees_next_super_branch_id ON trees(next_super_branch_id);
 CREATE INDEX IF NOT EXISTS idx_super_branches_tree_id ON super_branches(tree_id);
 CREATE INDEX IF NOT EXISTS idx_super_branches_user_id ON super_branches(user_id);
+CREATE INDEX IF NOT EXISTS idx_super_branches_next_branch_id ON super_branches(next_branch_id);
 CREATE INDEX IF NOT EXISTS idx_branches_super_branch_id ON branches(super_branch_id);
 CREATE INDEX IF NOT EXISTS idx_branches_user_id ON branches(user_id);
+CREATE INDEX IF NOT EXISTS idx_branches_next_sub_branch_id ON branches(next_sub_branch_id);
 CREATE INDEX IF NOT EXISTS idx_sub_branches_branch_id ON sub_branches(branch_id);
 CREATE INDEX IF NOT EXISTS idx_sub_branches_user_id ON sub_branches(user_id);
+CREATE INDEX IF NOT EXISTS idx_sub_branches_next_leaf_id ON sub_branches(next_leaf_id);
 CREATE INDEX IF NOT EXISTS idx_leaves_sub_branch_id ON leaves(sub_branch_id);
 CREATE INDEX IF NOT EXISTS idx_leaves_user_id ON leaves(user_id);
+CREATE INDEX IF NOT EXISTS idx_leaves_next_leaf_id ON leaves(next_leaf_id);
 CREATE INDEX IF NOT EXISTS idx_waves_user_id ON waves(user_id);
 CREATE INDEX IF NOT EXISTS idx_waves_parent ON waves(parent_type, parent_id);
 CREATE INDEX IF NOT EXISTS idx_waves_status ON waves(status);
@@ -842,8 +872,11 @@ END;
 CREATE TRIGGER IF NOT EXISTS trg_create_default_settings
 AFTER INSERT ON users
 FOR EACH ROW
-BEGIN
+BEGIN 
     INSERT INTO settings (user_id) VALUES (NEW.id);
 END;
+
+ALTER TABLE leaves ADD COLUMN base_completion_days INTEGER DEFAULT 3;
+
 
 -- End of schema

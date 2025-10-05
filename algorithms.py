@@ -131,16 +131,16 @@ def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_cou
             if child_table == "leaves":
                 c.execute(
                     f"""INSERT INTO {child_table} ({foreign_key}, user_id, name, created_at, status, resource_type, {next_field},
-                        understanding_level, difficulty, importance, base_time_minutes, study_duration_minutes)
-                        VALUES (?, ?, ?, ?, 'pending', 'other', ?, ?, ?, ?, ?, ?)""",
-                    (parent_id, user_id, name, now, last_id, 0.5, 3, 0.5, 30, 30)
+                        understanding_level, difficulty, importance, base_time_minutes, study_duration_minutes, completion_days, fibonacci_index)
+                        VALUES (?, ?, ?, ?, 'pending', 'other', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (parent_id, user_id, name, now, last_id, 0.5, 3, 0.5, 30, 30, 4, 1)
                 )
             else:
                 c.execute(
                     f"""INSERT INTO {child_table} ({foreign_key}, user_id, name, created_at, status, {next_field},
-                        understanding_level, difficulty, importance, base_time_minutes, study_duration_minutes)
-                        VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)""",
-                    (parent_id, user_id, name, now, last_id, 0.5, 3, 0.5, 30, 30)
+                        understanding_level, difficulty, importance, base_time_minutes, study_duration_minutes, completion_days, fibonacci_index)
+                        VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (parent_id, user_id, name, now, last_id, 0.5, 3, 0.5, 30, 30, 4, 1)
                 )
             new_id = c.lastrowid
             created_ids.append(new_id)
@@ -160,7 +160,7 @@ def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_cou
             parent_foreign_key = {
                 "forest": "ecology_id",
                 "tree": "forest_id",
-                "super_branch": "tree_id",
+            "super_branch": "tree_id",
                 "branch": "super_branch_id",
                 "sub_branch": "branch_id"
             }[parent_type]
@@ -301,6 +301,15 @@ def schedule_reviews_for_user(user_id: int, limit: int = 500) -> List[Dict[str, 
             nodes = c.fetchall()
             for node in nodes:
                 node_dict = dict(node)
+                # Check for existing pending reviews
+                c.execute(
+                    "SELECT id FROM reviews WHERE target_type = ? AND target_id = ? AND status = 'pending'",
+                    (node_type, node_dict["id"])
+                )
+                if c.fetchone():
+                    print(f"Skipping {node_type} ID={node_dict['id']} as it already has a pending review")
+                    continue
+
                 # Log if critical fields are None for debugging
                 if node_dict.get("understanding_level") is None:
                     print(f"Warning: understanding_level is None for {node_type} ID={node_dict['id']}, name={node_dict['name']}")
@@ -402,7 +411,7 @@ def schedule_integration_review(user_id: int, target_type: str, target_id: int, 
         total_duration = sum(child["review_estimated_duration_minutes"] or 5 for child in children)
         h_coeff = user_settings.get(f"h_coeff_{target_type}", DEFAULTS["h_coeff"][target_type])
         if not isinstance(h_coeff, (int, float)) or h_coeff <= 0:
-            print(f"Warning: Invalid h_coeff_{target_type} {h_coeff}, defaulting to {DEFAULTS['h_coeff'][target_type]}")
+            print(f"Warning: Invalid h_coeff_{target_type} {h_coeff}, defaulting to {DEFAULTS['h_coeff'][node_type]}")
             h_coeff = DEFAULTS["h_coeff"][target_type]
 
         est_duration = int(total_duration * h_coeff / len(children))
@@ -432,24 +441,37 @@ def perform_review(review_id: int, understanding: float, duration: int, notes: s
 
     with get_conn() as conn:
         c = conn.cursor()
+        # Get review details
+        c.execute(
+            "SELECT scheduled_date, created_at, target_type, target_id FROM reviews WHERE id = ?",
+            (review_id,)
+        )
+        review = c.fetchone()
+        if not review:
+            raise ValueError(f"Review ID={review_id} not found")
+
+        # Validate scheduled_date
+        scheduled_date = review["scheduled_date"]
+        created_at = review["created_at"]
+        today = datetime.now().date().isoformat()
+        if scheduled_date > today:
+            raise ValueError(
+                f"Cannot complete review ID={review_id} as it is scheduled for {scheduled_date}, which is in the future. "
+                "Please wait until the scheduled date or reschedule the review."
+            )
+
         # Update review
         c.execute(
-            """UPDATE reviews SET status = 'completed', performed_date = datetime('now'), understanding_after = ?,
+            """UPDATE reviews SET status = 'completed', performed_date = ?, understanding_after = ?,
                actual_duration = ?, notes = ? WHERE id = ?""",
-            (understanding, duration, notes, review_id)
+            (today, understanding, duration, notes, review_id)
         )
         if c.rowcount == 0:
             raise ValueError(f"Review ID={review_id} not found")
 
-        # Get target details
-        c.execute("SELECT target_type, target_id FROM reviews WHERE id = ?", (review_id,))
-        review = c.fetchone()
-        if not review:
-            raise ValueError(f"Review ID={review_id} not found")
+        # Get user_id
         target_type, target_id = review["target_type"], review["target_id"]
         table_name = TABLE_MAP[target_type]
-
-        # Get user_id
         c.execute(f"SELECT user_id FROM {table_name} WHERE id = ?", (target_id,))
         user_id_row = c.fetchone()
         if not user_id_row:
@@ -457,7 +479,6 @@ def perform_review(review_id: int, understanding: float, duration: int, notes: s
         user_id = user_id_row["user_id"]
 
         # Update streaks
-        today = date.today().isoformat()
         c.execute("SELECT streak_start, current_length, longest_length FROM streaks WHERE user_id = ?", (user_id,))
         streak = c.fetchone()
         if streak:
