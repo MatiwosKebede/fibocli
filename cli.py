@@ -2,6 +2,7 @@
 # cli.py
 import rich_click as click
 import datetime
+from datetime import date
 import sqlite3
 from rich.console import Console
 from rich.table import Table
@@ -256,22 +257,24 @@ def schedule(date):
         raise click.Abort()
 
 @cli.command()
-@click.option("--week-start", default=None, help="YYYY-MM-DD start of week (default today)")
-def pack(week_start):
-    """Pack reviews into weekly calendar"""
+@click.argument("week_start", default=date.today().isoformat())
+@click.option("--parent-type", type=click.Choice(["ecology", "forest", "tree", "super_branch", "branch", "sub_branch"]), default="sub_branch")
+@click.option("--units", type=int, default=5)
+def plant(week_start, parent_type, units):
+    """Plant a wave of child nodes under the specified parent type (default: sub_branch)"""
     uid = require_user()
-    week_start = week_start or datetime.date.today().isoformat()
     try:
-        placements = pack_schedule_for_week(uid, week_start)
-        print_schedule(placements)
-        console.print(f"[green]✅ Packed {len(placements['schedule'])} days with reviews for week starting {week_start}[/green]")
-    except ValueError as e:
-        console.print(f"[red]❌ Error: {e}[/red]")
+        datetime.date.fromisoformat(week_start)
+    except ValueError:
+        console.print(f"[red]❌ Invalid date format for {week_start}. Use YYYY-MM-DD.[/red]")
         raise click.Abort()
+    try:
+        parent_id = prompt_for_parent_id(parent_type, uid)
+        res = plant_wave(uid, parent_type, parent_id, units)
+        console.print(f"[green]✅ Wave created ID={res['wave_id']} created items: {res['actual_units_planted']} (planned {res['planned_units_count']})[/green]")
     except sqlite3.OperationalError as e:
         console.print(f"[red]❌ Database error: {e}. Please check if the database is initialized with 'fibocli init'.[/red]")
         raise click.Abort()
-
 @cli.command()
 def whoami():
     """Show logged-in user and current ecology"""

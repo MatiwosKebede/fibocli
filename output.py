@@ -37,12 +37,10 @@ def print_tree(nodes):
     tree = Tree(tree_label)
     
     node_map = {n["id"]: n for n in nodes}
-    children = {t: [] for t in ["ecology", "forest", "tree", "super_branch", "branch", "sub_branch"]}
+    # Include 'leaf' in the children dictionary
+    children = {t: [] for t in ["ecology", "forest", "tree", "super_branch", "branch", "sub_branch", "leaf"]}
     for n in nodes:
         if n["node_type"] != "ecology" and n["parent_id"]:
-            # NOTE: This parent_type lookup is inefficient for large datasets.
-            # A more robust solution would be to pre-process the data into a tree structure
-            # before calling print_tree. For now, it keeps the original logic intact.
             parent_node = node_map.get(n["parent_id"])
             if parent_node:
                 parent_type = parent_node["node_type"]
@@ -81,7 +79,6 @@ def print_tree(nodes):
     # Start the recursion from the ecology node looking for 'forest' children
     add_children(tree, "ecology", ecology["id"])
     rprint(tree)
-
 def print_reviews(reviews):
     """Print pending reviews in a table with course_name"""
     table = Table(title="[bold red]Pending Reviews[/bold red]")

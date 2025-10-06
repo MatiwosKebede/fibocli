@@ -76,7 +76,17 @@ def _importance_factor(i: Optional[float], k_i: float) -> float:
         i_val = 0.5
     return 1 + k_i * (i_val - 0.5)
 
-# --- Planting Wave ---
+
+def iso_days_from_now(days: int) -> str:
+    """Return the datetime in ISO format for the current date plus the specified number of days."""
+    return (datetime.now() + timedelta(days=days)).isoformat()
+
+from datetime import datetime, timedelta
+
+def iso_days_from_now(days: int) -> str:
+    """Return the datetime in ISO format for the current date plus the specified number of days."""
+    return (datetime.now() + timedelta(days=days)).isoformat()
+
 def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_count: int) -> Dict[str, Any]:
     """
     Create a planting wave with Fibonacci progression for the given parent.
@@ -108,7 +118,7 @@ def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_cou
 
         # Fibonacci quota
         fib_units = get_fib_from_table(wn)
-        quota = min(planned_units_count, fib_units)
+        actual_units_planted = min(planned_units_count, fib_units)
 
         child_type = {
             "ecology": "forest",
@@ -119,68 +129,59 @@ def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_cou
             "sub_branch": "leaf"
         }[parent_type]
         child_table = TABLE_MAP[child_type]
-        foreign_key = f"{parent_type}_id" if parent_type != "sub_branch" else "branch_id"
+        foreign_key = f"{parent_type}_id" if parent_type != "sub_branch" else "sub_branch_id"
         next_field = f"next_{child_type}_id" if child_type != "leaf" else "next_leaf_id"
 
         created_ids = []
         now = iso_now()
         last_id = None
 
-        for i in range(quota):
+        for i in range(actual_units_planted):
             name = f"{child_type.capitalize()} Wave{wn}-{i + 1}"
-            if child_table == "leaves":
-                c.execute(
-                    f"""INSERT INTO {child_table} ({foreign_key}, user_id, name, created_at, status, resource_type, {next_field},
-                        understanding_level, difficulty, importance, base_time_minutes, study_duration_minutes, completion_days, fibonacci_index)
-                        VALUES (?, ?, ?, ?, 'pending', 'other', ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (parent_id, user_id, name, now, last_id, 0.5, 3, 0.5, 30, 30, 4, 1)
-                )
-            else:
-                c.execute(
-                    f"""INSERT INTO {child_table} ({foreign_key}, user_id, name, created_at, status, {next_field},
-                        understanding_level, difficulty, importance, base_time_minutes, study_duration_minutes, completion_days, fibonacci_index)
-                        VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (parent_id, user_id, name, now, last_id, 0.5, 3, 0.5, 30, 30, 4, 1)
-                )
-            new_id = c.lastrowid
-            created_ids.append(new_id)
-            last_id = new_id
+            c.execute(
+                f"""
+                INSERT INTO {child_table} ({foreign_key}, user_id, name, created_at, status, fibonacci_index)
+                VALUES (?, ?, ?, ?, 'pending', ?)
+                """,
+                (parent_id, user_id, name, now, wn)
+            )
+            last_id = c.lastrowid
+            created_ids.append(last_id)
 
-        # Create wave record
         c.execute(
-            """INSERT INTO waves 
-               (user_id, parent_type, parent_id, wave_number, planned_units_count, actual_units_planted, status, planned_start_date, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, 'ready', datetime('now'), datetime('now'))""",
-            (user_id, parent_type, parent_id, wn, planned_units_count, len(created_ids))
+            f"""
+            INSERT INTO waves (user_id, parent_type, parent_id, wave_number, planned_units_count, actual_units_planted, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, parent_type, parent_id, wn, planned_units_count, actual_units_planted, now)
         )
         wave_id = c.lastrowid
 
-        # Link to parent wave if exists
-        if parent_type != "ecology":
-            parent_foreign_key = {
-                "forest": "ecology_id",
-                "tree": "forest_id",
-            "super_branch": "tree_id",
-                "branch": "super_branch_id",
-                "sub_branch": "branch_id"
-            }[parent_type]
-            parent_table = TABLE_MAP[parent_type]
-            parent_child_type = parent_type[:-1] if parent_type != "sub_branch" else "branch"
-            c.execute(
-                f"SELECT id FROM waves WHERE parent_type = ? AND parent_id = (SELECT {parent_foreign_key} FROM {parent_table} WHERE id = ?)",
-                (parent_child_type, parent_id)
-            )
-            parent_wave_row = c.fetchone()
-            if parent_wave_row:
-                parent_wave_id = parent_wave_row["id"]
+        # Update parent's next_child_id
+        c.execute(f"UPDATE {table_name} SET {next_field} = ? WHERE id = ?", (last_id, parent_id))
+
+        # For leaves, schedule initial reviews
+        if child_type == "leaf":
+            settings = get_user_settings(user_id)
+            base_time = settings.get("base_time_minutes", DEFAULTS["base_time_minutes"])
+            base_completion_days = settings.get("base_completion_days", DEFAULTS["base_completion_days"])
+            for leaf_id in created_ids:
                 c.execute(
-                    "INSERT INTO wave_relationships (parent_wave_id, child_wave_id, created_at) VALUES (?, ?, datetime('now'))",
-                    (parent_wave_id, wave_id)
+                    """
+                    INSERT INTO reviews (target_type, target_id, fib_index, scheduled_date, estimated_duration, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, 'pending', ?)
+                    """,
+                    ("leaf", leaf_id, wn, iso_days_from_now(base_completion_days), base_time, now)
                 )
 
         conn.commit()
-        return {"wave_id": wave_id, "created": created_ids, "quota": quota}
-
+        return {
+            "wave_id": wave_id,
+            "wave_number": wn,
+            "planned_units_count": planned_units_count,
+            "actual_units_planted": actual_units_planted,
+            "child_type": child_type
+        }
 # --- Review Scheduling ---
 def compute_leaf_completion_days(study_duration_minutes: int, base_completion_days: int, S_ref: int) -> int:
     """Calculate completion days for a leaf based on study duration."""
