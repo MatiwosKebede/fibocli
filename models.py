@@ -15,6 +15,7 @@ def create_user(full_name: str, username: str, email: str, password_hash: bytes)
             "INSERT INTO users (full_name, username, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
             (full_name, username, email, password_hash, now, now)
         )
+        conn.commit()
         return c.lastrowid
 
 def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
@@ -41,6 +42,7 @@ def store_session_token(user_id: int, token: str, expires_at: str) -> None:
             "INSERT INTO sessions (user_id, token, expires_at, is_valid, created_at) VALUES (?, ?, ?, ?, ?)",
             (user_id, token, expires_at, 1, iso_now())
         )
+        conn.commit()
 
 def get_user_from_token(token: str) -> Optional[int]:
     """Get user ID from a valid session token."""
@@ -74,9 +76,10 @@ def create_ecology(user_id: int, name: str, course_name: Optional[str] = None, c
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO ecologies (user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+            "INSERT INTO ecologies (user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, 'unlocked')",
             (user_id, name, course_name, course_code, iso_now())
         )
+        conn.commit()
         return c.lastrowid
 
 def create_forest(ecology_id: int, name: str, course_name: Optional[str] = None, course_code: Optional[str] = None) -> int:
@@ -87,9 +90,16 @@ def create_forest(ecology_id: int, name: str, course_name: Optional[str] = None,
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO forests (ecology_id, user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+            "SELECT status FROM ecologies WHERE id = ? AND is_deleted = 0", (ecology_id,)
+        )
+        ecology = c.fetchone()
+        if not ecology or ecology["status"] not in ("unlocked", "active", "completed"):
+            raise ValueError(f"Ecology ID {ecology_id} is {ecology['status'] if ecology else 'not found'}, must be unlocked, active, or completed")
+        c.execute(
+            "INSERT INTO forests (ecology_id, user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'locked')",
             (ecology_id, user_id, name, course_name, course_code, iso_now())
         )
+        conn.commit()
         return c.lastrowid
 
 def create_tree(forest_id: int, name: str, course_name: Optional[str] = None, course_code: Optional[str] = None) -> int:
@@ -100,9 +110,16 @@ def create_tree(forest_id: int, name: str, course_name: Optional[str] = None, co
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO trees (forest_id, user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+            "SELECT status FROM forests WHERE id = ? AND is_deleted = 0", (forest_id,)
+        )
+        forest = c.fetchone()
+        if not forest or forest["status"] not in ("unlocked", "active", "completed"):
+            raise ValueError(f"Forest ID {forest_id} is {forest['status'] if forest else 'not found'}, must be unlocked, active, or completed")
+        c.execute(
+            "INSERT INTO trees (forest_id, user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'locked')",
             (forest_id, user_id, name, course_name, course_code, iso_now())
         )
+        conn.commit()
         return c.lastrowid
 
 def create_super_branch(tree_id: int, name: str, course_name: Optional[str] = None, course_code: Optional[str] = None) -> int:
@@ -113,9 +130,16 @@ def create_super_branch(tree_id: int, name: str, course_name: Optional[str] = No
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO super_branches (tree_id, user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+            "SELECT status FROM trees WHERE id = ? AND is_deleted = 0", (tree_id,)
+        )
+        tree = c.fetchone()
+        if not tree or tree["status"] not in ("unlocked", "active", "completed"):
+            raise ValueError(f"Tree ID {tree_id} is {tree['status'] if tree else 'not found'}, must be unlocked, active, or completed")
+        c.execute(
+            "INSERT INTO super_branches (tree_id, user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'locked')",
             (tree_id, user_id, name, course_name, course_code, iso_now())
         )
+        conn.commit()
         return c.lastrowid
 
 def create_branch(super_branch_id: int, name: str, course_name: Optional[str] = None, course_code: Optional[str] = None) -> int:
@@ -126,9 +150,16 @@ def create_branch(super_branch_id: int, name: str, course_name: Optional[str] = 
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO branches (super_branch_id, user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+            "SELECT status FROM super_branches WHERE id = ? AND is_deleted = 0", (super_branch_id,)
+        )
+        super_branch = c.fetchone()
+        if not super_branch or super_branch["status"] not in ("unlocked", "active", "completed"):
+            raise ValueError(f"Super-branch ID {super_branch_id} is {super_branch['status'] if super_branch else 'not found'}, must be unlocked, active, or completed")
+        c.execute(
+            "INSERT INTO branches (super_branch_id, user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'locked')",
             (super_branch_id, user_id, name, course_name, course_code, iso_now())
         )
+        conn.commit()
         return c.lastrowid
 
 def create_sub_branch(branch_id: int, name: str, course_name: Optional[str] = None, course_code: Optional[str] = None) -> int:
@@ -139,9 +170,16 @@ def create_sub_branch(branch_id: int, name: str, course_name: Optional[str] = No
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO sub_branches (branch_id, user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+            "SELECT status FROM branches WHERE id = ? AND is_deleted = 0", (branch_id,)
+        )
+        branch = c.fetchone()
+        if not branch or branch["status"] not in ("unlocked", "active", "completed"):
+            raise ValueError(f"Branch ID {branch_id} is {branch['status'] if branch else 'not found'}, must be unlocked, active, or completed")
+        c.execute(
+            "INSERT INTO sub_branches (branch_id, user_id, name, course_name, course_code, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'locked')",
             (branch_id, user_id, name, course_name, course_code, iso_now())
         )
+        conn.commit()
         return c.lastrowid
 
 def insert_leaf(sub_branch_id: int, name: str, course_name: Optional[str], course_code: Optional[str], created_at: str, resource_type: str = 'other') -> int:
@@ -155,75 +193,134 @@ def insert_leaf(sub_branch_id: int, name: str, course_name: Optional[str], cours
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(
+            "SELECT status FROM sub_branches WHERE id = ? AND is_deleted = 0", (sub_branch_id,)
+        )
+        sub_branch = c.fetchone()
+        if not sub_branch or sub_branch["status"] not in ("unlocked", "active", "completed"):
+            raise ValueError(f"Sub-branch ID {sub_branch_id} is {sub_branch['status'] if sub_branch else 'not found'}, must be unlocked, active, or completed")
+        c.execute(
             """
             INSERT INTO leaves (sub_branch_id, user_id, name, course_name, course_code, resource_type, created_at, status, 
             base_time_minutes, base_completion_days, understanding_level, importance, difficulty)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 5, 4, 0.0, 0.5, 3)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'locked', 5, 4, 0.0, 0.5, 3)
             """,
             (sub_branch_id, user_id, name, course_name, course_code, resource_type, created_at)
         )
+        conn.commit()
         return c.lastrowid
+
+# -- Prerequisite Management --
+def add_prerequisite(node_type: str, node_id: int, prerequisite_type: str, prerequisite_id: int) -> None:
+    """Add a prerequisite for a node."""
+    valid_node_types = ['sub_branch', 'leaf']
+    if node_type not in valid_node_types:
+        raise ValueError(f"Invalid node_type: {node_type}. Must be one of {valid_node_types}")
+    if prerequisite_type not in valid_node_types:
+        raise ValueError(f"Invalid prerequisite_type: {prerequisite_type}. Must be one of {valid_node_types}")
+    if not isinstance(node_id, int) or node_id <= 0:
+        raise ValueError(f"Invalid node_id: {node_id}")
+    if not isinstance(prerequisite_id, int) or prerequisite_id <= 0:
+        raise ValueError(f"Invalid prerequisite_id: {prerequisite_id}")
+
+    with get_conn() as conn:
+        c = conn.cursor()
+        table_name = "sub_branches" if node_type == "sub_branch" else "leaves"
+        prereq_table = "sub_branches" if prerequisite_type == "sub_branch" else "leaves"
+        c.execute(f"SELECT id FROM {table_name} WHERE id = ? AND is_deleted = 0", (node_id,))
+        if not c.fetchone():
+            raise ValueError(f"Node {node_type} ID={node_id} not found")
+        c.execute(f"SELECT id, status FROM {prereq_table} WHERE id = ? AND is_deleted = 0", (prerequisite_id,))
+        prereq = c.fetchone()
+        if not prereq:
+            raise ValueError(f"Prerequisite {prerequisite_type} ID={prerequisite_id} not found")
+        is_completed = 1 if prereq["status"] == "completed" else 0
+        c.execute(
+            """
+            INSERT OR IGNORE INTO prerequisites (node_type, node_id, prerequisite_type, prerequisite_id, is_completed, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (node_type, node_id, prerequisite_type, prerequisite_id, is_completed, iso_now())
+        )
+        conn.commit()
+
+def get_prerequisites(node_type: str, node_id: int) -> List[Dict[str, Any]]:
+    """Retrieve all prerequisites for a given node."""
+    valid_node_types = ['sub_branch', 'leaf']
+    if node_type not in valid_node_types:
+        raise ValueError(f"Invalid node_type: {node_type}. Must be one of {valid_node_types}")
+    if not isinstance(node_id, int) or node_id <= 0:
+        raise ValueError(f"Invalid node_id: {node_id}")
+
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            """
+            SELECT p.prerequisite_type, p.prerequisite_id, p.is_completed,
+                   CASE 
+                       WHEN p.prerequisite_type = 'leaf' THEN l.name
+                       ELSE sb.name
+                   END as name,
+                   CASE 
+                       WHEN p.prerequisite_type = 'leaf' THEN l.course_name
+                       ELSE sb.course_name
+                   END as course_name
+            FROM prerequisites p
+            LEFT JOIN leaves l ON p.prerequisite_type = 'leaf' AND p.prerequisite_id = l.id
+            LEFT JOIN sub_branches sb ON p.prerequisite_type = 'sub_branch' AND p.prerequisite_id = sb.id
+            WHERE p.node_type = ? AND p.node_id = ?
+            """,
+            (node_type, node_id)
+        )
+        return [dict(row) for row in c.fetchall()]
 
 # -- Helper Functions for User ID --
 def get_user_from_ecology(ecology_id: int) -> Optional[int]:
-    """Get user ID from an ecology ID, raise ValueError if not found."""
+    """Get user ID from an ecology ID."""
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT user_id FROM ecologies WHERE id = ? AND is_deleted = 0", (ecology_id,))
         row = c.fetchone()
-        if not row:
-            raise ValueError(f"Ecology ID {ecology_id} not found.")
-        return row["user_id"]
+        return row["user_id"] if row else None
 
 def get_user_from_forest(forest_id: int) -> Optional[int]:
-    """Get user ID from a forest ID, raise ValueError if not found."""
+    """Get user ID from a forest ID."""
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT user_id FROM forests WHERE id = ? AND is_deleted = 0", (forest_id,))
         row = c.fetchone()
-        if not row:
-            raise ValueError(f"Forest ID {forest_id} not found.")
-        return row["user_id"]
+        return row["user_id"] if row else None
 
 def get_user_from_tree(tree_id: int) -> Optional[int]:
-    """Get user ID from a tree ID, raise ValueError if not found."""
+    """Get user ID from a tree ID."""
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT user_id FROM trees WHERE id = ? AND is_deleted = 0", (tree_id,))
         row = c.fetchone()
-        if not row:
-            raise ValueError(f"Tree ID {tree_id} not found.")
-        return row["user_id"]
+        return row["user_id"] if row else None
 
 def get_user_from_super_branch(super_branch_id: int) -> Optional[int]:
-    """Get user ID from a super-branch ID, raise ValueError if not found."""
+    """Get user ID from a super-branch ID."""
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT user_id FROM super_branches WHERE id = ? AND is_deleted = 0", (super_branch_id,))
         row = c.fetchone()
-        if not row:
-            raise ValueError(f"Super-branch ID {super_branch_id} not found.")
-        return row["user_id"]
+        return row["user_id"] if row else None
 
 def get_user_from_branch(branch_id: int) -> Optional[int]:
-    """Get user ID from a branch ID, raise ValueError if not found."""
+    """Get user ID from a branch ID."""
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT user_id FROM branches WHERE id = ? AND is_deleted = 0", (branch_id,))
         row = c.fetchone()
-        if not row:
-            raise ValueError(f"Branch ID {branch_id} not found.")
-        return row["user_id"]
+        return row["user_id"] if row else None
 
 def get_user_from_sub_branch(sub_branch_id: int) -> Optional[int]:
-    """Get user ID from a sub-branch ID, raise ValueError if not found."""
+    """Get user ID from a sub-branch ID."""
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT user_id FROM sub_branches WHERE id = ? AND is_deleted = 0", (sub_branch_id,))
         row = c.fetchone()
-        if not row:
-            raise ValueError(f"Sub-branch ID {sub_branch_id} not found.")
-        return row["user_id"]
+        return row["user_id"] if row else None
 
 # -- Settings --
 def get_user_settings(user_id: int) -> Dict[str, Any]:
@@ -245,7 +342,7 @@ def get_user_ecology(user_id: int) -> Optional[Dict[str, Any]]:
 
 # -- Hierarchy Overview with Path --
 def get_hierarchy_overview(user_id: int) -> List[Dict[str, Any]]:
-    """Get a complete hierarchy overview for the user with paths."""
+    """Get a complete hierarchy overview for the user with paths and prerequisites."""
     with get_conn() as conn:
         c = conn.cursor()
         nodes = []
@@ -323,7 +420,10 @@ def get_hierarchy_overview(user_id: int) -> List[Dict[str, Any]]:
             """, 
             (user_id,)
         )
-        nodes.extend([dict(row) for row in c.fetchall()])
+        sub_branches = [dict(row) for row in c.fetchall()]
+        for sb in sub_branches:
+            sb["prerequisites"] = get_prerequisites("sub_branch", sb["id"])
+            nodes.append(sb)
         # Leaves
         c.execute(
             """
@@ -337,7 +437,10 @@ def get_hierarchy_overview(user_id: int) -> List[Dict[str, Any]]:
             """, 
             (user_id,)
         )
-        nodes.extend([dict(row) for row in c.fetchall()])
+        leaves = [dict(row) for row in c.fetchall()]
+        for leaf in leaves:
+            leaf["prerequisites"] = get_prerequisites("leaf", leaf["id"])
+            nodes.append(leaf)
         return nodes
 
 # -- Stats --
@@ -358,21 +461,21 @@ def get_user_stats(user_id: int, week_start: str) -> Dict[str, Any]:
             SELECT COUNT(*) as cnt 
             FROM reviews r
             JOIN (
-                SELECT 'leaf' AS target_type, id, user_id FROM leaves WHERE user_id = ? AND is_deleted = 0
+                SELECT 'leaf' AS target_type, id, user_id, status FROM leaves WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'sub_branch' AS target_type, id, user_id FROM sub_branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'sub_branch' AS target_type, id, user_id, status FROM sub_branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'branch' AS target_type, id, user_id FROM branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'branch' AS target_type, id, user_id, status FROM branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'super_branch' AS target_type, id, user_id FROM super_branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'super_branch' AS target_type, id, user_id, status FROM super_branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'tree' AS target_type, id, user_id FROM trees WHERE user_id = ? AND is_deleted = 0
+                SELECT 'tree' AS target_type, id, user_id, status FROM trees WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'forest' AS target_type, id, user_id FROM forests WHERE user_id = ? AND is_deleted = 0
+                SELECT 'forest' AS target_type, id, user_id, status FROM forests WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'ecology' AS target_type, id, user_id FROM ecologies WHERE user_id = ? AND is_deleted = 0
+                SELECT 'ecology' AS target_type, id, user_id, status FROM ecologies WHERE user_id = ? AND is_deleted = 0
             ) n ON r.target_type = n.target_type AND r.target_id = n.id
-            WHERE r.status = 'pending'
+            WHERE r.status = 'pending' AND n.status IN ('unlocked', 'active')
             """, 
             (user_id, user_id, user_id, user_id, user_id, user_id, user_id)
         )
@@ -383,21 +486,21 @@ def get_user_stats(user_id: int, week_start: str) -> Dict[str, Any]:
             SELECT SUM(r.actual_duration) as total
             FROM schedules s JOIN reviews r ON s.related_id = r.id AND s.type = 'review'
             JOIN (
-                SELECT 'leaf' AS target_type, id, user_id FROM leaves WHERE user_id = ? AND is_deleted = 0
+                SELECT 'leaf' AS target_type, id, user_id, status FROM leaves WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'sub_branch' AS target_type, id, user_id FROM sub_branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'sub_branch' AS target_type, id, user_id, status FROM sub_branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'branch' AS target_type, id, user_id FROM branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'branch' AS target_type, id, user_id, status FROM branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'super_branch' AS target_type, id, user_id FROM super_branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'super_branch' AS target_type, id, user_id, status FROM super_branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'tree' AS target_type, id, user_id FROM trees WHERE user_id = ? AND is_deleted = 0
+                SELECT 'tree' AS target_type, id, user_id, status FROM trees WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'forest' AS target_type, id, user_id FROM forests WHERE user_id = ? AND is_deleted = 0
+                SELECT 'forest' AS target_type, id, user_id, status FROM forests WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'ecology' AS target_type, id, user_id FROM ecologies WHERE user_id = ? AND is_deleted = 0
+                SELECT 'ecology' AS target_type, id, user_id, status FROM ecologies WHERE user_id = ? AND is_deleted = 0
             ) n ON r.target_type = n.target_type AND r.target_id = n.id
-            WHERE s.start_datetime >= ? AND s.start_datetime < ?
+            WHERE s.start_datetime >= ? AND s.start_datetime < ? AND n.status IN ('unlocked', 'active')
             """, 
             (user_id, user_id, user_id, user_id, user_id, user_id, user_id, week_start, 
              (datetime.date.fromisoformat(week_start) + datetime.timedelta(days=7)).isoformat())
@@ -409,19 +512,19 @@ def get_user_stats(user_id: int, week_start: str) -> Dict[str, Any]:
             SELECT COUNT(*) as cnt, AVG(r.understanding_after) as avg_understanding
             FROM reviews r
             JOIN (
-                SELECT 'leaf' AS target_type, id, user_id FROM leaves WHERE user_id = ? AND is_deleted = 0
+                SELECT 'leaf' AS target_type, id, user_id, status FROM leaves WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'sub_branch' AS target_type, id, user_id FROM sub_branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'sub_branch' AS target_type, id, user_id, status FROM sub_branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'branch' AS target_type, id, user_id FROM branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'branch' AS target_type, id, user_id, status FROM branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'super_branch' AS target_type, id, user_id FROM super_branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'super_branch' AS target_type, id, user_id, status FROM super_branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'tree' AS target_type, id, user_id FROM trees WHERE user_id = ? AND is_deleted = 0
+                SELECT 'tree' AS target_type, id, user_id, status FROM trees WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'forest' AS target_type, id, user_id FROM forests WHERE user_id = ? AND is_deleted = 0
+                SELECT 'forest' AS target_type, id, user_id, status FROM forests WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'ecology' AS target_type, id, user_id FROM ecologies WHERE user_id = ? AND is_deleted = 0
+                SELECT 'ecology' AS target_type, id, user_id, status FROM ecologies WHERE user_id = ? AND is_deleted = 0
             ) n ON r.target_type = n.target_type AND r.target_id = n.id
             WHERE r.status = 'completed'
             """, 
@@ -455,40 +558,40 @@ def get_user_stats(user_id: int, week_start: str) -> Dict[str, Any]:
 
 # -- Reviews --
 def get_pending_reviews_for_user(user_id: int) -> List[Dict[str, Any]]:
-    """Get all pending reviews for the user across all node types."""
+    """Get all pending reviews for the user across all node types with valid status."""
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(
             """
-            SELECT r.*, t.name, t.course_name, t.course_code,
+            SELECT r.*, t.name, t.course_name, t.course_code, t.status,
                    CASE 
                        WHEN r.target_type = 'leaf' THEN t.resource_type
                        ELSE NULL 
                    END as resource_type
             FROM reviews r
             JOIN (
-                SELECT 'leaf' AS target_type, id, user_id, name, course_name, course_code, resource_type
+                SELECT 'leaf' AS target_type, id, user_id, name, course_name, course_code, resource_type, status
                 FROM leaves WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'sub_branch' AS target_type, id, user_id, name, course_name, course_code, NULL
+                SELECT 'sub_branch' AS target_type, id, user_id, name, course_name, course_code, NULL, status
                 FROM sub_branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'branch' AS target_type, id, user_id, name, course_name, course_code, NULL
+                SELECT 'branch' AS target_type, id, user_id, name, course_name, course_code, NULL, status
                 FROM branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'super_branch' AS target_type, id, user_id, name, course_name, course_code, NULL
+                SELECT 'super_branch' AS target_type, id, user_id, name, course_name, course_code, NULL, status
                 FROM super_branches WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'tree' AS target_type, id, user_id, name, course_name, course_code, NULL
+                SELECT 'tree' AS target_type, id, user_id, name, course_name, course_code, NULL, status
                 FROM trees WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'forest' AS target_type, id, user_id, name, course_name, course_code, NULL
+                SELECT 'forest' AS target_type, id, user_id, name, course_name, course_code, NULL, status
                 FROM forests WHERE user_id = ? AND is_deleted = 0
                 UNION ALL
-                SELECT 'ecology' AS target_type, id, user_id, name, course_name, course_code, NULL
+                SELECT 'ecology' AS target_type, id, user_id, name, course_name, course_code, NULL, status
                 FROM ecologies WHERE user_id = ? AND is_deleted = 0
             ) t ON r.target_type = t.target_type AND r.target_id = t.id
-            WHERE r.status = 'pending'
+            WHERE r.status = 'pending' AND t.status IN ('unlocked', 'active')
             """,
             (user_id, user_id, user_id, user_id, user_id, user_id, user_id)
         )
@@ -496,65 +599,68 @@ def get_pending_reviews_for_user(user_id: int) -> List[Dict[str, Any]]:
 
 # -- Interactive Parent Selection --
 def get_available_parents(parent_type: str, user_id: int) -> List[Dict[str, Any]]:
-    """Get available parent nodes for the given type and user."""
+    """Get available parent nodes for the given type and user with valid status."""
+    valid_parent_types = ["ecology", "forest", "tree", "super_branch", "branch", "sub_branch"]
+    if parent_type not in valid_parent_types:
+        raise ValueError(f"Invalid parent_type: {parent_type}. Must be one of {valid_parent_types}")
     with get_conn() as conn:
         c = conn.cursor()
         table = parent_type + "s" if parent_type != "sub_branch" else "sub_branches"
         if parent_type == "ecology":
             c.execute(
                 f"""
-                SELECT id, name, course_name, course_code, name AS path
+                SELECT id, name, course_name, course_code, name AS path, status
                 FROM {table}
-                WHERE user_id = ? AND is_deleted = 0
+                WHERE user_id = ? AND is_deleted = 0 AND status IN ('unlocked', 'active', 'completed')
                 """, 
                 (user_id,)
             )
         elif parent_type == "forest":
             c.execute(
                 f"""
-                SELECT f.id, f.name, f.course_name, f.course_code, e.name || ' > ' || f.name AS path
+                SELECT f.id, f.name, f.course_name, f.course_code, e.name || ' > ' || f.name AS path, f.status
                 FROM {table} f JOIN ecologies e ON f.ecology_id = e.id
-                WHERE f.user_id = ? AND f.is_deleted = 0 AND e.is_deleted = 0
+                WHERE f.user_id = ? AND f.is_deleted = 0 AND e.is_deleted = 0 AND f.status IN ('unlocked', 'active', 'completed')
                 """, 
                 (user_id,)
             )
         elif parent_type == "tree":
             c.execute(
                 f"""
-                SELECT t.id, t.name, t.course_name, t.course_code, e.name || ' > ' || f.name || ' > ' || t.name AS path
+                SELECT t.id, t.name, t.course_name, t.course_code, e.name || ' > ' || f.name || ' > ' || t.name AS path, t.status
                 FROM {table} t JOIN forests f ON t.forest_id = f.id JOIN ecologies e ON f.ecology_id = e.id
-                WHERE t.user_id = ? AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0
+                WHERE t.user_id = ? AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0 AND t.status IN ('unlocked', 'active', 'completed')
                 """, 
                 (user_id,)
             )
         elif parent_type == "super_branch":
             c.execute(
                 f"""
-                SELECT s.id, s.name, s.course_name, s.course_code, e.name || ' > ' || f.name || ' > ' || t.name || ' > ' || s.name AS path
+                SELECT s.id, s.name, s.course_name, s.course_code, e.name || ' > ' || f.name || ' > ' || t.name || ' > ' || s.name AS path, s.status
                 FROM {table} s JOIN trees t ON s.tree_id = t.id
                 JOIN forests f ON t.forest_id = f.id JOIN ecologies e ON f.ecology_id = e.id
-                WHERE s.user_id = ? AND s.is_deleted = 0 AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0
+                WHERE s.user_id = ? AND s.is_deleted = 0 AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0 AND s.status IN ('unlocked', 'active', 'completed')
                 """, 
                 (user_id,)
             )
         elif parent_type == "branch":
             c.execute(
                 f"""
-                SELECT b.id, b.name, b.course_name, b.course_code, e.name || ' > ' || f.name || ' > ' || t.name || ' > ' || s.name || ' > ' || b.name AS path
+                SELECT b.id, b.name, b.course_name, b.course_code, e.name || ' > ' || f.name || ' > ' || t.name || ' > ' || s.name || ' > ' || b.name AS path, b.status
                 FROM {table} b JOIN super_branches s ON b.super_branch_id = s.id
                 JOIN trees t ON s.tree_id = t.id JOIN forests f ON t.forest_id = f.id JOIN ecologies e ON f.ecology_id = e.id
-                WHERE b.user_id = ? AND b.is_deleted = 0 AND s.is_deleted = 0 AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0
+                WHERE b.user_id = ? AND b.is_deleted = 0 AND s.is_deleted = 0 AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0 AND b.status IN ('unlocked', 'active', 'completed')
                 """, 
                 (user_id,)
             )
         elif parent_type == "sub_branch":
             c.execute(
                 f"""
-                SELECT sb.id, sb.name, sb.course_name, sb.course_code, e.name || ' > ' || f.name || ' > ' || t.name || ' > ' || s.name || ' > ' || b.name || ' > ' || sb.name AS path
+                SELECT sb.id, sb.name, sb.course_name, sb.course_code, e.name || ' > ' || f.name || ' > ' || t.name || ' > ' || s.name || ' > ' || b.name || ' > ' || sb.name AS path, sb.status
                 FROM {table} sb JOIN branches b ON sb.branch_id = b.id
                 JOIN super_branches s ON b.super_branch_id = s.id JOIN trees t ON s.tree_id = t.id
                 JOIN forests f ON t.forest_id = f.id JOIN ecologies e ON f.ecology_id = e.id
-                WHERE sb.user_id = ? AND sb.is_deleted = 0 AND b.is_deleted = 0 AND s.is_deleted = 0 AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0
+                WHERE sb.user_id = ? AND sb.is_deleted = 0 AND b.is_deleted = 0 AND s.is_deleted = 0 AND t.is_deleted = 0 AND f.is_deleted = 0 AND e.is_deleted = 0 AND sb.status IN ('unlocked', 'active', 'completed')
                 """, 
                 (user_id,)
             )

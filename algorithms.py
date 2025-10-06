@@ -76,21 +76,58 @@ def _importance_factor(i: Optional[float], k_i: float) -> float:
         i_val = 0.5
     return 1 + k_i * (i_val - 0.5)
 
-
 def iso_days_from_now(days: int) -> str:
     """Return the datetime in ISO format for the current date plus the specified number of days."""
     return (datetime.now() + timedelta(days=days)).isoformat()
 
-from datetime import datetime, timedelta
+# --- Prerequisite Checks ---
+def check_prerequisites(node_type: str, node_id: int) -> bool:
+    """Check if all prerequisites for a node are completed."""
+    if not isinstance(node_type, str) or node_type not in TABLE_MAP:
+        raise ValueError(f"Invalid node_type: {node_type}")
+    if not isinstance(node_id, int) or node_id <= 0:
+        raise ValueError(f"Invalid node_id: {node_id}")
 
-def iso_days_from_now(days: int) -> str:
-    """Return the datetime in ISO format for the current date plus the specified number of days."""
-    return (datetime.now() + timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            """
+            SELECT COUNT(*) as pending_count
+            FROM prerequisites
+            WHERE node_type = ? AND node_id = ? AND is_completed = FALSE
+            """,
+            (node_type, node_id)
+        )
+        result = c.fetchone()
+        return result["pending_count"] == 0
 
-def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_count: int) -> Dict[str, Any]:
+def unlock_node(node_type: str, node_id: int) -> None:
+    """Unlock a node if its prerequisites are met."""
+    if not isinstance(node_type, str) or node_type not in TABLE_MAP:
+        raise ValueError(f"Invalid node_type: {node_type}")
+    if not isinstance(node_id, int) or node_id <= 0:
+        raise ValueError(f"Invalid node_id: {node_id}")
+
+    if check_prerequisites(node_type, node_id):
+        table_name = TABLE_MAP[node_type]
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                f"UPDATE {table_name} SET status = 'unlocked' WHERE id = ? AND status = 'locked'",
+                (node_id,)
+            )
+            conn.commit()
+            if c.rowcount > 0:
+                print(f"Unlocked {node_type} ID={node_id}")
+            else:
+                print(f"No update needed for {node_type} ID={node_id} (already unlocked or not found)")
+
+# --- Wave Planting ---
+def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_count: int, prerequisites: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """
     Create a planting wave with Fibonacci progression for the given parent.
     Supports: ecology → forest → tree → super_branch → branch → sub_branch → leaf
+    Handles prerequisites for sequential learning.
     """
     if not isinstance(user_id, int) or user_id <= 0:
         raise ValueError(f"Invalid user_id: {user_id}")
@@ -105,9 +142,12 @@ def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_cou
         c = conn.cursor()
         # Verify parent exists and is not deleted
         table_name = TABLE_MAP[parent_type]
-        c.execute(f"SELECT id FROM {table_name} WHERE id = ? AND user_id = ? AND is_deleted = 0", (parent_id, user_id))
-        if not c.fetchone():
+        c.execute(f"SELECT id, status FROM {table_name} WHERE id = ? AND user_id = ? AND is_deleted = 0", (parent_id, user_id))
+        parent = c.fetchone()
+        if not parent:
             raise ValueError(f"Parent {parent_type} ID={parent_id} not found or deleted for user_id={user_id}")
+        if parent["status"] not in ("unlocked", "active", "completed"):
+            raise ValueError(f"Parent {parent_type} ID={parent_id} is {parent['status']}, must be unlocked, active, or completed")
 
         # Next wave number
         c.execute(
@@ -141,12 +181,40 @@ def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_cou
             c.execute(
                 f"""
                 INSERT INTO {child_table} ({foreign_key}, user_id, name, created_at, status, fibonacci_index)
-                VALUES (?, ?, ?, ?, 'pending', ?)
+                VALUES (?, ?, ?, ?, 'locked', ?)
                 """,
                 (parent_id, user_id, name, now, wn)
             )
             last_id = c.lastrowid
             created_ids.append(last_id)
+
+        # Insert prerequisites if provided
+        if prerequisites and child_type in ("sub_branch", "leaf"):
+            for idx, prereq in enumerate(prerequisites):
+                if idx >= len(created_ids):
+                    break
+                node_id = created_ids[idx]
+                prereq_type = prereq.get("prerequisite_type")
+                prereq_id = prereq.get("prerequisite_id")
+                if prereq_type not in TABLE_MAP or not isinstance(prereq_id, int) or prereq_id <= 0:
+                    print(f"Warning: Invalid prerequisite for {child_type} ID={node_id}, skipping")
+                    continue
+                c.execute(
+                    """
+                    INSERT OR IGNORE INTO prerequisites (node_type, node_id, prerequisite_type, prerequisite_id, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (child_type, node_id, prereq_type, prereq_id, now)
+                )
+
+        # Unlock first node if no prerequisites or parent is completed
+        if created_ids:
+            first_node_id = created_ids[0]
+            if not prerequisites or parent["status"] == "completed":
+                c.execute(
+                    f"UPDATE {child_table} SET status = 'unlocked' WHERE id = ?",
+                    (first_node_id,)
+                )
 
         c.execute(
             f"""
@@ -160,19 +228,21 @@ def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_cou
         # Update parent's next_child_id
         c.execute(f"UPDATE {table_name} SET {next_field} = ? WHERE id = ?", (last_id, parent_id))
 
-        # For leaves, schedule initial reviews
+        # For leaves, schedule initial reviews if unlocked
         if child_type == "leaf":
             settings = get_user_settings(user_id)
             base_time = settings.get("base_time_minutes", DEFAULTS["base_time_minutes"])
             base_completion_days = settings.get("base_completion_days", DEFAULTS["base_completion_days"])
             for leaf_id in created_ids:
-                c.execute(
-                    """
-                    INSERT INTO reviews (target_type, target_id, fib_index, scheduled_date, estimated_duration, status, created_at)
-                    VALUES (?, ?, ?, ?, ?, 'pending', ?)
-                    """,
-                    ("leaf", leaf_id, wn, iso_days_from_now(base_completion_days), base_time, now)
-                )
+                c.execute(f"SELECT status FROM leaves WHERE id = ?", (leaf_id,))
+                if c.fetchone()["status"] == "unlocked":
+                    c.execute(
+                        """
+                        INSERT INTO reviews (target_type, target_id, fib_index, scheduled_date, estimated_duration, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, 'pending', ?)
+                        """,
+                        ("leaf", leaf_id, wn, iso_days_from_now(base_completion_days), base_time, now)
+                    )
 
         conn.commit()
         return {
@@ -180,8 +250,10 @@ def plant_wave(user_id: int, parent_type: str, parent_id: int, planned_units_cou
             "wave_number": wn,
             "planned_units_count": planned_units_count,
             "actual_units_planted": actual_units_planted,
-            "child_type": child_type
+            "child_type": child_type,
+            "created_ids": created_ids
         }
+
 # --- Review Scheduling ---
 def compute_leaf_completion_days(study_duration_minutes: int, base_completion_days: int, S_ref: int) -> int:
     """Calculate completion days for a leaf based on study duration."""
@@ -189,8 +261,8 @@ def compute_leaf_completion_days(study_duration_minutes: int, base_completion_da
         print(f"Warning: Invalid study_duration_minutes {study_duration_minutes}, defaulting to {DEFAULTS['base_time_minutes']}")
         study_duration_minutes = DEFAULTS["base_time_minutes"]
     if not isinstance(base_completion_days, (int, float)) or base_completion_days <= 0:
-        print(f"Warning: Invalid base_completion_days {base_completion_days}, defaulting to 4")
-        base_completion_days = 4
+        print(f"Warning: Invalid base_completion_days {base_completion_days}, defaulting to {DEFAULTS['base_completion_days']}")
+        base_completion_days = DEFAULTS["base_completion_days"]
     if not isinstance(S_ref, (int, float)) or S_ref <= 0:
         print(f"Warning: Invalid S_ref {S_ref}, defaulting to {DEFAULTS['S_ref']}")
         S_ref = DEFAULTS["S_ref"]
@@ -199,7 +271,6 @@ def compute_leaf_completion_days(study_duration_minutes: int, base_completion_da
 
 def estimate_review_duration(node_type: str, node: dict, user_settings: dict) -> int:
     """Estimate the duration of a review in minutes for a given node."""
-    # Validate inputs
     if not isinstance(node_type, str) or node_type not in TABLE_MAP:
         raise ValueError(f"Invalid node_type: {node_type}")
     if not isinstance(node, dict):
@@ -207,7 +278,6 @@ def estimate_review_duration(node_type: str, node: dict, user_settings: dict) ->
     if not isinstance(user_settings, dict):
         raise ValueError("User settings must be a dictionary")
 
-    # Retrieve and validate parameters
     base_time = node.get("base_time_minutes", user_settings.get("base_time_minutes", DEFAULTS["base_time_minutes"]))
     if not isinstance(base_time, (int, float)) or base_time <= 0:
         print(f"Warning: Invalid base_time_minutes {base_time}, defaulting to {DEFAULTS['base_time_minutes']}")
@@ -268,14 +338,13 @@ def estimate_review_duration(node_type: str, node: dict, user_settings: dict) ->
         print(f"Warning: Invalid h_coeff_{node_type} {h_coeff}, defaulting to {DEFAULTS['h_coeff'][node_type]}")
         h_coeff = DEFAULTS["h_coeff"][node_type]
 
-    # Calculate duration
     duration = max(base_time, int(study_dur * (1 + (1 - u) * a_u)))
     duration *= (1 + k_d * (d / 5)) * (1 + k_i * imp) * h_coeff
     decay = (1 - gamma * min(rc / R_decay_cap, 1))
     return max(1, int(math.ceil(duration * decay)))
 
 def schedule_reviews_for_user(user_id: int, limit: int = 500) -> List[Dict[str, Any]]:
-    """Schedule reviews for a user based on node attributes and settings."""
+    """Schedule reviews for a user based on node attributes, settings, and prerequisites."""
     if not isinstance(user_id, int) or user_id <= 0:
         raise ValueError(f"Invalid user_id: {user_id}")
     if not isinstance(limit, int) or limit <= 0:
@@ -295,13 +364,17 @@ def schedule_reviews_for_user(user_id: int, limit: int = 500) -> List[Dict[str, 
             
             c.execute(
                 f"""SELECT id, name, course_name, understanding_level, difficulty, importance, completion_days,
-                    fibonacci_index, review_count, base_time_minutes, study_duration_minutes
-                    FROM {table_name} WHERE user_id = ? AND is_deleted = 0""",
+                    fibonacci_index, review_count, base_time_minutes, study_duration_minutes, status
+                    FROM {table_name} WHERE user_id = ? AND is_deleted = 0 AND status IN ('unlocked', 'active')""",
                 (user_id,)
             )
             nodes = c.fetchall()
             for node in nodes:
                 node_dict = dict(node)
+                if not check_prerequisites(node_type, node_dict["id"]):
+                    print(f"Skipping {node_type} ID={node_dict['id']} due to incomplete prerequisites")
+                    continue
+
                 # Check for existing pending reviews
                 c.execute(
                     "SELECT id FROM reviews WHERE target_type = ? AND target_id = ? AND status = 'pending'",
@@ -325,10 +398,10 @@ def schedule_reviews_for_user(user_id: int, limit: int = 500) -> List[Dict[str, 
                     fib_idx = 1
 
                 F = get_fib_from_table(fib_idx)
-                completion_days = node_dict.get("completion_days", user_settings.get("base_completion_days", 4))
+                completion_days = node_dict.get("completion_days", user_settings.get("base_completion_days", DEFAULTS["base_completion_days"]))
                 if not isinstance(completion_days, (int, float)) or completion_days < 0:
-                    print(f"Warning: Invalid completion_days {completion_days} for {node_type} ID={node_dict['id']}, defaulting to 4")
-                    completion_days = 4
+                    print(f"Warning: Invalid completion_days {completion_days} for {node_type} ID={node_dict['id']}, defaulting to {DEFAULTS['base_completion_days']}")
+                    completion_days = DEFAULTS["base_completion_days"]
 
                 h = user_settings.get(f"h_coeff_{node_type}", DEFAULTS["h_coeff"][node_type])
                 k_u = user_settings.get("k_u", DEFAULTS["k_u"])
@@ -350,7 +423,7 @@ def schedule_reviews_for_user(user_id: int, limit: int = 500) -> List[Dict[str, 
                 )
                 c.execute(
                     f"""UPDATE {table_name} SET next_review_date = ?, fibonacci_index = ?, review_count = COALESCE(review_count, 0) + 1,
-                        review_estimated_duration_minutes = ? WHERE id = ?""",
+                        review_estimated_duration_minutes = ?, status = 'active' WHERE id = ?""",
                     (scheduled_date, fib_idx + 1, est_dur, node_dict["id"])
                 )
                 scheduled.append({
@@ -370,7 +443,7 @@ def schedule_reviews_for_user(user_id: int, limit: int = 500) -> List[Dict[str, 
     return scheduled
 
 def schedule_integration_review(user_id: int, target_type: str, target_id: int, fib_index: int) -> None:
-    """Schedule an integration review for a specific node."""
+    """Schedule an integration review for a specific node if prerequisites are met."""
     if not isinstance(user_id, int) or user_id <= 0:
         raise ValueError(f"Invalid user_id: {user_id}")
     if target_type not in TABLE_MAP:
@@ -380,15 +453,21 @@ def schedule_integration_review(user_id: int, target_type: str, target_id: int, 
     if not isinstance(fib_index, int) or fib_index < 1:
         raise ValueError(f"Invalid fib_index: {fib_index}")
 
+    if not check_prerequisites(target_type, target_id):
+        raise ValueError(f"Cannot schedule integration review for {target_type} ID={target_id} due to incomplete prerequisites")
+
     user_settings = get_user_settings(user_id)
     table_name = TABLE_MAP[target_type]
     
     with get_conn() as conn:
         c = conn.cursor()
-        # Verify target exists and is not deleted
-        c.execute(f"SELECT id FROM {table_name} WHERE id = ? AND user_id = ? AND is_deleted = 0", (target_id, user_id))
-        if not c.fetchone():
+        # Verify target exists, is not deleted, and is unlocked or active
+        c.execute(f"SELECT id, status FROM {table_name} WHERE id = ? AND user_id = ? AND is_deleted = 0", (target_id, user_id))
+        target = c.fetchone()
+        if not target:
             raise ValueError(f"Target {target_type} ID={target_id} not found or deleted for user_id={user_id}")
+        if target["status"] not in ("unlocked", "active"):
+            raise ValueError(f"Target {target_type} ID={target_id} is {target['status']}, must be unlocked or active")
 
         child_type = {
             "ecology": "forest",
@@ -412,7 +491,7 @@ def schedule_integration_review(user_id: int, target_type: str, target_id: int, 
         total_duration = sum(child["review_estimated_duration_minutes"] or 5 for child in children)
         h_coeff = user_settings.get(f"h_coeff_{target_type}", DEFAULTS["h_coeff"][target_type])
         if not isinstance(h_coeff, (int, float)) or h_coeff <= 0:
-            print(f"Warning: Invalid h_coeff_{target_type} {h_coeff}, defaulting to {DEFAULTS['h_coeff'][node_type]}")
+            print(f"Warning: Invalid h_coeff_{target_type} {h_coeff}, defaulting to {DEFAULTS['h_coeff'][target_type]}")
             h_coeff = DEFAULTS["h_coeff"][target_type]
 
         est_duration = int(total_duration * h_coeff / len(children))
@@ -424,13 +503,13 @@ def schedule_integration_review(user_id: int, target_type: str, target_id: int, 
             (target_type, target_id, fib_index, scheduled_date, est_duration)
         )
         c.execute(
-            f"UPDATE {table_name} SET next_review_date = ?, fibonacci_index = ? WHERE id = ?",
+            f"UPDATE {table_name} SET next_review_date = ?, fibonacci_index = ?, status = 'active' WHERE id = ?",
             (scheduled_date, fib_index + 1, target_id)
         )
         conn.commit()
 
 def perform_review(review_id: int, understanding: float, duration: int, notes: str) -> None:
-    """Update a review with completion details and maintain user streaks."""
+    """Update a review with completion details, maintain streaks, and update node status."""
     if not isinstance(review_id, int) or review_id <= 0:
         raise ValueError(f"Invalid review_id: {review_id}")
     if not isinstance(understanding, (int, float)) or not (0 <= understanding <= 1):
@@ -453,13 +532,22 @@ def perform_review(review_id: int, understanding: float, duration: int, notes: s
 
         # Validate scheduled_date
         scheduled_date = review["scheduled_date"]
-        created_at = review["created_at"]
         today = datetime.now().date().isoformat()
         if scheduled_date > today:
             raise ValueError(
                 f"Cannot complete review ID={review_id} as it is scheduled for {scheduled_date}, which is in the future. "
                 "Please wait until the scheduled date or reschedule the review."
             )
+
+        # Verify node status
+        target_type, target_id = review["target_type"], review["target_id"]
+        table_name = TABLE_MAP[target_type]
+        c.execute(f"SELECT status, user_id FROM {table_name} WHERE id = ?", (target_id,))
+        node = c.fetchone()
+        if not node:
+            raise ValueError(f"Target {target_type} ID={target_id} not found")
+        if node["status"] not in ("unlocked", "active"):
+            raise ValueError(f"Cannot perform review on {target_type} ID={target_id} with status {node['status']}")
 
         # Update review
         c.execute(
@@ -470,14 +558,26 @@ def perform_review(review_id: int, understanding: float, duration: int, notes: s
         if c.rowcount == 0:
             raise ValueError(f"Review ID={review_id} not found")
 
-        # Get user_id
-        target_type, target_id = review["target_type"], review["target_id"]
-        table_name = TABLE_MAP[target_type]
-        c.execute(f"SELECT user_id FROM {table_name} WHERE id = ?", (target_id,))
-        user_id_row = c.fetchone()
-        if not user_id_row:
-            raise ValueError(f"Target {target_type} ID={target_id} not found")
-        user_id = user_id_row["user_id"]
+        # Update node status and understanding
+        user_id = node["user_id"]
+        new_status = "completed" if understanding >= DEFAULTS["R_threshold"] else "active"
+        c.execute(
+            f"UPDATE {table_name} SET understanding_level = ?, status = ? WHERE id = ?",
+            (understanding, new_status, target_id)
+        )
+
+        # Unlock dependent nodes
+        c.execute(
+            """
+            SELECT node_type, node_id
+            FROM prerequisites
+            WHERE prerequisite_type = ? AND prerequisite_id = ? AND is_completed = TRUE
+            """,
+            (target_type, target_id)
+        )
+        dependent_nodes = c.fetchall()
+        for dep in dependent_nodes:
+            unlock_node(dep["node_type"], dep["node_id"])
 
         # Update streaks
         c.execute("SELECT streak_start, current_length, longest_length FROM streaks WHERE user_id = ?", (user_id,))
@@ -515,7 +615,7 @@ def perform_review(review_id: int, understanding: float, duration: int, notes: s
 
 # --- Weekly Packing ---
 def pack_schedule_for_week(user_id: int, week_start_date: str) -> List[Dict[str, Any]]:
-    """Pack reviews into a weekly schedule based on priority and availability."""
+    """Pack reviews into a weekly schedule based on priority, availability, and prerequisites."""
     if not isinstance(user_id, int) or user_id <= 0:
         raise ValueError(f"Invalid user_id: {user_id}")
     try:
@@ -532,24 +632,24 @@ def pack_schedule_for_week(user_id: int, week_start_date: str) -> List[Dict[str,
         week_end = (date.fromisoformat(week_start_date) + timedelta(days=7)).isoformat()
         c.execute(
             """
-            SELECT r.*, n.name, n.course_name
+            SELECT r.*, n.name, n.course_name, n.status
             FROM reviews r
             JOIN (
-                SELECT 'ecology' AS target_type, id, name, course_name FROM ecologies WHERE user_id = ? AND is_deleted = 0
+                SELECT 'ecology' AS target_type, id, name, course_name, status FROM ecologies WHERE user_id = ? AND is_deleted = 0
                 UNION
-                SELECT 'forest' AS target_type, id, name, course_name FROM forests WHERE user_id = ? AND is_deleted = 0
+                SELECT 'forest' AS target_type, id, name, course_name, status FROM forests WHERE user_id = ? AND is_deleted = 0
                 UNION
-                SELECT 'tree' AS target_type, id, name, course_name FROM trees WHERE user_id = ? AND is_deleted = 0
+                SELECT 'tree' AS target_type, id, name, course_name, status FROM trees WHERE user_id = ? AND is_deleted = 0
                 UNION
-                SELECT 'super_branch' AS target_type, id, name, course_name FROM super_branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'super_branch' AS target_type, id, name, course_name, status FROM super_branches WHERE user_id = ? AND is_deleted = 0
                 UNION
-                SELECT 'branch' AS target_type, id, name, course_name FROM branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'branch' AS target_type, id, name, course_name, status FROM branches WHERE user_id = ? AND is_deleted = 0
                 UNION
-                SELECT 'sub_branch' AS target_type, id, name, course_name FROM sub_branches WHERE user_id = ? AND is_deleted = 0
+                SELECT 'sub_branch' AS target_type, id, name, course_name, status FROM sub_branches WHERE user_id = ? AND is_deleted = 0
                 UNION
-                SELECT 'leaf' AS target_type, id, name, course_name FROM leaves WHERE user_id = ? AND is_deleted = 0
+                SELECT 'leaf' AS target_type, id, name, course_name, status FROM leaves WHERE user_id = ? AND is_deleted = 0
             ) n ON r.target_type = n.target_type AND r.target_id = n.id
-            WHERE r.status = 'pending' AND r.scheduled_date <= ?
+            WHERE r.status = 'pending' AND r.scheduled_date <= ? AND n.status IN ('unlocked', 'active')
             ORDER BY r.scheduled_date ASC
             """,
             (user_id, user_id, user_id, user_id, user_id, user_id, user_id, week_end)
@@ -560,6 +660,9 @@ def pack_schedule_for_week(user_id: int, week_start_date: str) -> List[Dict[str,
         for r in reviews:
             target = r["target_type"]
             tid = r["target_id"]
+            if not check_prerequisites(target, tid):
+                print(f"Skipping review {r['id']} for {target} ID={tid} due to incomplete prerequisites")
+                continue
             table_name = TABLE_MAP[target]
             c.execute(
                 f"SELECT importance, difficulty, review_estimated_duration_minutes FROM {table_name} WHERE id = ? AND is_deleted = 0",

@@ -1,5 +1,6 @@
 -- schema.sql for ecology.db
--- Enhanced SQLite3 schema for fully offline Learning Ecology System
+-- Upgraded SQLite3 schema for fully offline Learning Ecology System
+-- Supports enhanced statuses (Pending, Active, Completed, Locked, Unlocked) and prerequisites
 -- Optimized for offline use with performance, integrity, and data consistency
 -- Run with: sqlite3 ecology.db < schema.sql
 
@@ -91,7 +92,21 @@ INSERT OR IGNORE INTO fibonacci (fib_index, value) VALUES
 (31, 1346269), (32, 2178309), (33, 3524578), (34, 5702887), (35, 9227465), (36, 14930352), (37, 24157817), (38, 39088169), (39, 63245986), (40, 102334155),
 (41, 165580141), (42, 267914296), (43, 433494437), (44, 701408733), (45, 1134903170), (46, 1836311903), (47, 2971215073), (48, 4807526976), (49, 7778742049), (50, 12586269025);
 
--- Ecologies table: Top-level node (one per user) with comprehensive metadata
+-- Prerequisites table: Defines dependencies between nodes for sequential learning
+CREATE TABLE IF NOT EXISTS prerequisites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_type TEXT NOT NULL CHECK (node_type IN ('ecology', 'forest', 'tree', 'super_branch', 'branch', 'sub_branch', 'leaf')),
+    node_id INTEGER NOT NULL,
+    prerequisite_type TEXT NOT NULL CHECK (prerequisite_type IN ('ecology', 'forest', 'tree', 'super_branch', 'branch', 'sub_branch', 'leaf')),
+    prerequisite_id INTEGER NOT NULL,
+    is_completed BOOLEAN DEFAULT FALSE,
+    created_at DATETIME DEFAULT (datetime('now')),
+    updated_at DATETIME DEFAULT (datetime('now')),
+    CONSTRAINT chk_node_types CHECK (node_type = prerequisite_type OR node_type IN ('sub_branch', 'leaf') AND prerequisite_type IN ('sub_branch', 'leaf')),
+    CONSTRAINT unique_prerequisite UNIQUE (node_type, node_id, prerequisite_type, prerequisite_id)
+);
+
+-- Ecologies table: Top-level node (one per user) with enhanced status
 CREATE TABLE IF NOT EXISTS ecologies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL UNIQUE,
@@ -101,7 +116,7 @@ CREATE TABLE IF NOT EXISTS ecologies (
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
+    status TEXT DEFAULT 'unlocked' CHECK (status IN ('pending', 'active', 'completed', 'locked', 'unlocked')),
     is_deleted BOOLEAN DEFAULT FALSE,
     understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
     difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
@@ -114,7 +129,7 @@ CREATE TABLE IF NOT EXISTS ecologies (
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
-    next_forest_id INTEGER,  -- Added for chaining
+    next_forest_id INTEGER,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (next_forest_id) REFERENCES forests(id) ON DELETE SET NULL
 );
@@ -130,7 +145,7 @@ CREATE TABLE IF NOT EXISTS forests (
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
+    status TEXT DEFAULT 'unlocked' CHECK (status IN ('pending', 'active', 'completed', 'locked', 'unlocked')),
     is_deleted BOOLEAN DEFAULT FALSE,
     understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
     difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
@@ -143,7 +158,7 @@ CREATE TABLE IF NOT EXISTS forests (
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
-    next_tree_id INTEGER,  -- Added for chaining
+    next_tree_id INTEGER,
     FOREIGN KEY (ecology_id) REFERENCES ecologies(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (next_tree_id) REFERENCES trees(id) ON DELETE SET NULL
@@ -160,7 +175,7 @@ CREATE TABLE IF NOT EXISTS trees (
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
+    status TEXT DEFAULT 'unlocked' CHECK (status IN ('pending', 'active', 'completed', 'locked', 'unlocked')),
     is_deleted BOOLEAN DEFAULT FALSE,
     understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
     difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
@@ -170,11 +185,11 @@ CREATE TABLE IF NOT EXISTS trees (
     review_count INTEGER DEFAULT 0 CHECK (review_count >= 0),
     review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
     next_review_date DATETIME,
-    next_tree_id INTEGER,  -- Added for chaining
+    next_tree_id INTEGER,
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
-    next_super_branch_id INTEGER,  -- Added for chaining
+    next_super_branch_id INTEGER,
     FOREIGN KEY (forest_id) REFERENCES forests(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (next_tree_id) REFERENCES trees(id) ON DELETE SET NULL,
@@ -192,7 +207,7 @@ CREATE TABLE IF NOT EXISTS super_branches (
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
+    status TEXT DEFAULT 'unlocked' CHECK (status IN ('pending', 'active', 'completed', 'locked', 'unlocked')),
     is_deleted BOOLEAN DEFAULT FALSE,
     understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
     difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
@@ -205,7 +220,7 @@ CREATE TABLE IF NOT EXISTS super_branches (
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
-    next_branch_id INTEGER,  -- Added for chaining
+    next_branch_id INTEGER,
     FOREIGN KEY (tree_id) REFERENCES trees(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (next_branch_id) REFERENCES branches(id) ON DELETE SET NULL
@@ -222,7 +237,7 @@ CREATE TABLE IF NOT EXISTS branches (
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
+    status TEXT DEFAULT 'unlocked' CHECK (status IN ('pending', 'active', 'completed', 'locked', 'unlocked')),
     is_deleted BOOLEAN DEFAULT FALSE,
     understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
     difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
@@ -235,7 +250,7 @@ CREATE TABLE IF NOT EXISTS branches (
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
-    next_sub_branch_id INTEGER,  -- Added for chaining
+    next_sub_branch_id INTEGER,
     FOREIGN KEY (super_branch_id) REFERENCES super_branches(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (next_sub_branch_id) REFERENCES sub_branches(id) ON DELETE SET NULL
@@ -252,7 +267,7 @@ CREATE TABLE IF NOT EXISTS sub_branches (
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
+    status TEXT DEFAULT 'unlocked' CHECK (status IN ('pending', 'active', 'completed', 'locked', 'unlocked')),
     is_deleted BOOLEAN DEFAULT FALSE,
     understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
     difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
@@ -265,14 +280,14 @@ CREATE TABLE IF NOT EXISTS sub_branches (
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
     study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
-    next_leaf_id INTEGER,  -- Already present for chaining leaves
+    next_leaf_id INTEGER,
     FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (next_leaf_id) REFERENCES leaves(id) ON DELETE SET NULL
 );
 
 -- Leaves table
-CREATE TABLE leaves (
+CREATE TABLE IF NOT EXISTS leaves (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sub_branch_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
@@ -282,7 +297,7 @@ CREATE TABLE leaves (
     description TEXT,
     created_at DATETIME DEFAULT (datetime('now')),
     study_date DATETIME,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'completed')),
+    status TEXT DEFAULT 'unlocked' CHECK (status IN ('pending', 'active', 'completed', 'locked', 'unlocked')),
     is_deleted BOOLEAN DEFAULT FALSE,
     understanding_level REAL CHECK (understanding_level BETWEEN 0 AND 1),
     difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
@@ -293,37 +308,17 @@ CREATE TABLE leaves (
     review_estimated_duration_minutes INTEGER CHECK (review_estimated_duration_minutes >= 0),
     next_review_date DATETIME,
     metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
-    resource_type TEXT CHECK (resource_type IN ('book', 'video', 'text', 'quiz', 'exercise', 'other')),
+    resource_type TEXT CHECK (resource_type IN ('book', 'video', 'text', 'quiz', 'exercise', 'other', 'chapter')),
     next_leaf_id INTEGER,
     base_time_minutes INTEGER CHECK (base_time_minutes > 0),
-    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0), base_completion_days INTEGER DEFAULT 3,
+    study_duration_minutes INTEGER CHECK (study_duration_minutes > 0),
+    base_completion_days INTEGER DEFAULT 3 CHECK (base_completion_days >= 0),
     FOREIGN KEY (sub_branch_id) REFERENCES sub_branches(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (next_leaf_id) REFERENCES leaves(id) ON DELETE SET NULL
 );
-CREATE TRIGGER trg_leaves_user_id
-AFTER INSERT ON leaves
-FOR EACH ROW
-BEGIN
-    UPDATE leaves SET user_id = (SELECT user_id FROM sub_branches WHERE id = NEW.sub_branch_id) WHERE id = NEW.id;
-END;
-CREATE INDEX idx_leaves_sub_branch_id ON leaves(sub_branch_id);
-CREATE INDEX idx_leaves_user_id ON leaves(user_id);
-CREATE INDEX idx_leaves_next_leaf_id ON leaves(next_leaf_id);
-CREATE INDEX idx_leaves_next_review_date ON leaves(next_review_date);
-CREATE INDEX idx_leaves_status ON leaves(status);
-CREATE TRIGGER trg_validate_metadata_json_leaf_insert
-BEFORE INSERT ON leaves
-FOR EACH ROW WHEN NEW.metadata IS NOT NULL
-BEGIN
-    SELECT CASE WHEN NOT json_valid(NEW.metadata) THEN RAISE(ABORT, 'Invalid JSON in metadata') END;
-END;
-CREATE TRIGGER trg_validate_metadata_json_leaf_update
-BEFORE UPDATE ON leaves
-FOR EACH ROW WHEN NEW.metadata IS NOT NULL
-BEGIN
-    SELECT CASE WHEN NOT json_valid(NEW.metadata) THEN RAISE(ABORT, 'Invalid JSON in metadata') END;
-END;
+
+-- Waves table: Tracks planting waves for all node types
 CREATE TABLE IF NOT EXISTS waves (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -501,7 +496,71 @@ BEGIN
     UPDATE leaves SET user_id = (SELECT user_id FROM sub_branches WHERE id = NEW.sub_branch_id) WHERE id = NEW.id;
 END;
 
--- Indexes for performance optimization in offline scenario
+-- Triggers for prerequisite status updates
+CREATE TRIGGER IF NOT EXISTS trg_update_prerequisite_status
+AFTER UPDATE OF status ON leaves
+FOR EACH ROW
+WHEN NEW.status = 'completed'
+BEGIN
+    UPDATE prerequisites SET is_completed = TRUE
+    WHERE prerequisite_type = 'leaf' AND prerequisite_id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_update_sub_branch_prerequisite
+AFTER UPDATE OF status ON sub_branches
+FOR EACH ROW
+WHEN NEW.status = 'completed'
+BEGIN
+    UPDATE prerequisites SET is_completed = TRUE
+    WHERE prerequisite_type = 'sub_branch' AND prerequisite_id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_update_branch_prerequisite
+AFTER UPDATE OF status ON branches
+FOR EACH ROW
+WHEN NEW.status = 'completed'
+BEGIN
+    UPDATE prerequisites SET is_completed = TRUE
+    WHERE prerequisite_type = 'branch' AND prerequisite_id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_update_super_branch_prerequisite
+AFTER UPDATE OF status ON super_branches
+FOR EACH ROW
+WHEN NEW.status = 'completed'
+BEGIN
+    UPDATE prerequisites SET is_completed = TRUE
+    WHERE prerequisite_type = 'super_branch' AND prerequisite_id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_update_tree_prerequisite
+AFTER UPDATE OF status ON trees
+FOR EACH ROW
+WHEN NEW.status = 'completed'
+BEGIN
+    UPDATE prerequisites SET is_completed = TRUE
+    WHERE prerequisite_type = 'tree' AND prerequisite_id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_update_forest_prerequisite
+AFTER UPDATE OF status ON forests
+FOR EACH ROW
+WHEN NEW.status = 'completed'
+BEGIN
+    UPDATE prerequisites SET is_completed = TRUE
+    WHERE prerequisite_type = 'forest' AND prerequisite_id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_update_ecology_prerequisite
+AFTER UPDATE OF status ON ecologies
+FOR EACH ROW
+WHEN NEW.status = 'completed'
+BEGIN
+    UPDATE prerequisites SET is_completed = TRUE
+    WHERE prerequisite_type = 'ecology' AND prerequisite_id = NEW.id;
+END;
+
+-- Indexes for performance optimization
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
@@ -543,6 +602,9 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_user_id ON sync_queue(user_id);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_operation ON sync_queue(operation);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_created_at ON sync_queue(created_at);
+CREATE INDEX IF NOT EXISTS idx_prerequisites_node ON prerequisites(node_type, node_id);
+CREATE INDEX IF NOT EXISTS idx_prerequisites_prereq ON prerequisites(prerequisite_type, prerequisite_id);
+CREATE INDEX IF NOT EXISTS idx_prerequisites_is_completed ON prerequisites(is_completed);
 
 -- Composite indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_reviews_target_scheduled ON reviews(target_type, target_id, scheduled_date);
@@ -572,6 +634,7 @@ SELECT
     l.sub_branch_id,
     l.name,
     l.resource_type,
+    l.status,
     COUNT(r.id) AS total_scheduled_reviews,
     COUNT(CASE WHEN r.status = 'completed' THEN 1 END) AS completed_reviews,
     CASE 
@@ -582,7 +645,7 @@ SELECT
     l.importance,
     l.difficulty,
     l.completion_days,
-    l.status
+    (SELECT COUNT(*) FROM prerequisites p WHERE p.node_type = 'leaf' AND p.node_id = l.id AND p.is_completed = FALSE) AS pending_prerequisites
 FROM leaves l
 LEFT JOIN reviews r ON r.target_type = 'leaf' AND r.target_id = l.id
 WHERE l.is_deleted = FALSE
@@ -593,15 +656,16 @@ SELECT
     sb.id,
     sb.branch_id,
     sb.name,
+    sb.status,
     COUNT(l.id) AS leaf_count,
     SUM(CASE WHEN l.status = 'completed' THEN 1 ELSE 0 END) AS completed_leaves,
     AVG(vls.completion_ratio) AS avg_completion_ratio,
     COALESCE(SUM(vls.completion_ratio * vls.importance * vls.difficulty) / NULLIF(SUM(vls.importance * vls.difficulty), 0), 0) AS weighted_readiness_score,
     COALESCE(SUM(vls.understanding_level * vls.importance * vls.difficulty) / NULLIF(SUM(vls.importance * vls.difficulty), 0), 0) AS weighted_understanding_level,
     sb.completion_days,
-    sb.status,
     sb.importance,
-    sb.difficulty
+    sb.difficulty,
+    (SELECT COUNT(*) FROM prerequisites p WHERE p.node_type = 'sub_branch' AND p.node_id = sb.id AND p.is_completed = FALSE) AS pending_prerequisites
 FROM sub_branches sb
 LEFT JOIN leaves l ON l.sub_branch_id = sb.id AND l.is_deleted = FALSE
 LEFT JOIN v_leaf_status vls ON vls.id = l.id
@@ -613,14 +677,15 @@ SELECT
     b.id,
     b.super_branch_id,
     b.name,
+    b.status,
     COUNT(sb.id) AS sub_branch_count,
     SUM(CASE WHEN sb.status = 'completed' THEN 1 ELSE 0 END) AS completed_sub_branches,
     AVG(vsbp.weighted_readiness_score) AS avg_readiness_score,
     COALESCE(SUM(vsbp.weighted_readiness_score * vsbp.importance * vsbp.difficulty) / NULLIF(SUM(vsbp.importance * vsbp.difficulty), 0), 0) AS weighted_readiness_score,
     b.completion_days,
-    b.status,
     b.importance,
-    b.difficulty
+    b.difficulty,
+    (SELECT COUNT(*) FROM prerequisites p WHERE p.node_type = 'branch' AND p.node_id = b.id AND p.is_completed = FALSE) AS pending_prerequisites
 FROM branches b
 LEFT JOIN sub_branches sb ON sb.branch_id = b.id AND sb.is_deleted = FALSE
 LEFT JOIN v_sub_branch_progress vsbp ON vsbp.id = sb.id
@@ -632,13 +697,14 @@ SELECT
     sb.id,
     sb.tree_id,
     sb.name,
+    sb.status,
     COUNT(b.id) AS branch_count,
     AVG(vbp.weighted_readiness_score) AS avg_readiness_score,
     COALESCE(SUM(vbp.weighted_readiness_score * vbp.importance * vbp.difficulty) / NULLIF(SUM(vbp.importance * vbp.difficulty), 0), 0) AS weighted_readiness_score,
     sb.completion_days,
-    sb.status,
     sb.importance,
-    sb.difficulty
+    sb.difficulty,
+    (SELECT COUNT(*) FROM prerequisites p WHERE p.node_type = 'super_branch' AND p.node_id = sb.id AND p.is_completed = FALSE) AS pending_prerequisites
 FROM super_branches sb
 LEFT JOIN branches b ON b.super_branch_id = sb.id AND b.is_deleted = FALSE
 LEFT JOIN v_branch_progress vbp ON vbp.id = b.id
@@ -650,13 +716,14 @@ SELECT
     t.id,
     t.forest_id,
     t.name,
+    t.status,
     COUNT(sb.id) AS super_branch_count,
     AVG(vsbp.weighted_readiness_score) AS avg_readiness_score,
-    COALESCE(SUM(vsbp.weighted_readiness_score * vsbp.importance * vsbp.difficulty) / NULLIF(SUM(vsbp.importance * vbp.difficulty), 0), 0) AS weighted_readiness_score,
+    COALESCE(SUM(vsbp.weighted_readiness_score * vsbp.importance * vsbp.difficulty) / NULLIF(SUM(vsbp.importance * vsbp.difficulty), 0), 0) AS weighted_readiness_score,
     t.completion_days,
-    t.status,
     t.importance,
-    t.difficulty
+    t.difficulty,
+    (SELECT COUNT(*) FROM prerequisites p WHERE p.node_type = 'tree' AND p.node_id = t.id AND p.is_completed = FALSE) AS pending_prerequisites
 FROM trees t
 LEFT JOIN super_branches sb ON sb.tree_id = t.id AND sb.is_deleted = FALSE
 LEFT JOIN v_super_branch_progress vsbp ON vsbp.id = sb.id
@@ -668,13 +735,14 @@ SELECT
     f.id,
     f.ecology_id,
     f.name,
+    f.status,
     COUNT(t.id) AS tree_count,
     AVG(vtp.weighted_readiness_score) AS avg_readiness_score,
     COALESCE(SUM(vtp.weighted_readiness_score * vtp.importance * vtp.difficulty) / NULLIF(SUM(vtp.importance * vtp.difficulty), 0), 0) AS weighted_readiness_score,
     f.completion_days,
-    f.status,
     f.importance,
-    f.difficulty
+    f.difficulty,
+    (SELECT COUNT(*) FROM prerequisites p WHERE p.node_type = 'forest' AND p.node_id = f.id AND p.is_completed = FALSE) AS pending_prerequisites
 FROM forests f
 LEFT JOIN trees t ON t.forest_id = f.id AND t.is_deleted = FALSE
 LEFT JOIN v_tree_progress vtp ON vtp.id = t.id
@@ -686,13 +754,14 @@ SELECT
     e.id,
     e.user_id,
     e.name,
+    e.status,
     COUNT(f.id) AS forest_count,
     AVG(vfp.weighted_readiness_score) AS avg_readiness_score,
     COALESCE(SUM(vfp.weighted_readiness_score * vfp.importance * vfp.difficulty) / NULLIF(SUM(vfp.importance * vfp.difficulty), 0), 0) AS weighted_readiness_score,
     e.completion_days,
-    e.status,
     e.importance,
-    e.difficulty
+    e.difficulty,
+    (SELECT COUNT(*) FROM prerequisites p WHERE p.node_type = 'ecology' AND p.node_id = e.id AND p.is_completed = FALSE) AS pending_prerequisites
 FROM ecologies e
 LEFT JOIN forests f ON f.ecology_id = e.id AND f.is_deleted = FALSE
 LEFT JOIN v_forest_progress vfp ON vfp.id = f.id
@@ -700,19 +769,19 @@ WHERE e.is_deleted = FALSE
 GROUP BY e.id;
 
 CREATE VIEW IF NOT EXISTS v_hierarchy_overview AS
-SELECT 'ecology' AS node_type, id, NULL AS parent_id, user_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_ecology_progress
+SELECT 'ecology' AS node_type, id, NULL AS parent_id, user_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score, pending_prerequisites FROM v_ecology_progress
 UNION ALL
-SELECT 'forest' AS node_type, id, ecology_id AS parent_id, ecology_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_forest_progress
+SELECT 'forest' AS node_type, id, ecology_id AS parent_id, ecology_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score, pending_prerequisites FROM v_forest_progress
 UNION ALL
-SELECT 'tree' AS node_type, id, forest_id AS parent_id, forest_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_tree_progress
+SELECT 'tree' AS node_type, id, forest_id AS parent_id, forest_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score, pending_prerequisites FROM v_tree_progress
 UNION ALL
-SELECT 'super_branch' AS node_type, id, tree_id AS parent_id, tree_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_super_branch_progress
+SELECT 'super_branch' AS node_type, id, tree_id AS parent_id, tree_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score, pending_prerequisites FROM v_super_branch_progress
 UNION ALL
-SELECT 'branch' AS node_type, id, super_branch_id AS parent_id, super_branch_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_branch_progress
+SELECT 'branch' AS node_type, id, super_branch_id AS parent_id, super_branch_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score, pending_prerequisites FROM v_branch_progress
 UNION ALL
-SELECT 'sub_branch' AS node_type, id, branch_id AS parent_id, branch_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score FROM v_sub_branch_progress
+SELECT 'sub_branch' AS node_type, id, branch_id AS parent_id, branch_id AS root_id, name, status, importance, difficulty, completion_days, weighted_readiness_score AS readiness_score, pending_prerequisites FROM v_sub_branch_progress
 UNION ALL
-SELECT 'leaf' AS node_type, id, sub_branch_id AS parent_id, sub_branch_id AS root_id, name, status, importance, difficulty, completion_days, completion_ratio AS readiness_score FROM v_leaf_status;
+SELECT 'leaf' AS node_type, id, sub_branch_id AS parent_id, sub_branch_id AS root_id, name, status, importance, difficulty, completion_days, completion_ratio AS readiness_score, pending_prerequisites FROM v_leaf_status;
 
 CREATE VIEW IF NOT EXISTS weekly_stats AS
 SELECT
@@ -724,7 +793,7 @@ FROM reviews
 WHERE status = 'completed'
 GROUP BY week_number;
 
--- Triggers to maintain data integrity and timestamps
+-- Triggers for data integrity and timestamps
 CREATE TRIGGER IF NOT EXISTS trg_update_users_updated_at
 AFTER UPDATE ON users
 FOR EACH ROW BEGIN
@@ -749,7 +818,13 @@ FOR EACH ROW BEGIN
     UPDATE schedules SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
--- Auto-increment wave_number for new waves of same parent
+CREATE TRIGGER IF NOT EXISTS trg_update_prerequisites_updated_at
+AFTER UPDATE ON prerequisites
+FOR EACH ROW BEGIN
+    UPDATE prerequisites SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+-- Auto-increment wave_number for new waves
 CREATE TRIGGER IF NOT EXISTS trg_waves_auto_increment
 BEFORE INSERT ON waves
 FOR EACH ROW WHEN NEW.wave_number IS NULL
@@ -761,7 +836,7 @@ BEGIN
     ) WHERE rowid = NEW.rowid;
 END;
 
--- Validate JSON in metadata fields on insert/update
+-- Validate JSON in metadata fields
 CREATE TRIGGER IF NOT EXISTS trg_validate_metadata_json_ecology_insert
 BEFORE INSERT ON ecologies
 FOR EACH ROW WHEN NEW.metadata IS NOT NULL
@@ -875,8 +950,5 @@ FOR EACH ROW
 BEGIN 
     INSERT INTO settings (user_id) VALUES (NEW.id);
 END;
-
-ALTER TABLE leaves ADD COLUMN base_completion_days INTEGER DEFAULT 3;
-
 
 -- End of schema
