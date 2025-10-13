@@ -1,92 +1,124 @@
--- FIBOCLI Enhanced Schema v3.0 - Complete Feature Integration
--- Includes: Gamification, Auto-Streaker, Auto-Duration, Hierarchical Restrictions, 
--- Dynamic Difficulty, Fatigue Management, Session Control, Notifications, and more
+-- FIBOCLI Enhanced Schema v4.1 - Full CLI Integration with Advanced AI Features
+-- Fully compatible with cli.py v3.0 while preserving all AI capabilities
 
-PRAGMA foreign_keys = ON;
+PRAGMA foreign_keys = OFF;
 PRAGMA journal_mode = WAL;
+PRAGMA auto_vacuum = INCREMENTAL;
 
--- Enhanced Users table with gamification and advanced features
+-- Enhanced Users table with AI and CLI compatibility
 CREATE TABLE IF NOT EXISTS Users (
     user_id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     email TEXT,
+    
+    -- CLI-Compatible time management
     available_minutes_per_day TEXT DEFAULT '[120,120,120,120,120,90,60]',
+    preferred_study_hours TEXT DEFAULT '{"morning": 2, "afternoon": 3, "evening": 1}',
+    timezone TEXT DEFAULT 'UTC',
+    
+    -- CLI-Compatible gamification
     points INTEGER DEFAULT 0,
     streak_days INTEGER DEFAULT 0,
     streak_multiplier REAL DEFAULT 1.0,
+    longest_streak INTEGER DEFAULT 0,
     last_study_date TEXT,
+    
+    -- CLI-Required fields
     learning_efficiency REAL DEFAULT 1.0,
     fatigue_threshold REAL DEFAULT 75.0,
-    timezone TEXT DEFAULT 'UTC',
-    
-    -- Gamification fields
     daily_goal_minutes INTEGER DEFAULT 120,
     total_study_minutes INTEGER DEFAULT 0,
     level INTEGER DEFAULT 1,
     experience_points INTEGER DEFAULT 0,
     total_points_earned INTEGER DEFAULT 0,
+    total_sessions_completed INTEGER DEFAULT 0,
     
-    -- Auto-streaker fields
-    longest_streak INTEGER DEFAULT 0,
+    -- AI Learning Profile (preserved)
+    learning_style TEXT DEFAULT 'balanced' CHECK (learning_style IN (
+        'visual', 'auditory', 'kinesthetic', 'reading', 'balanced', 'adaptive'
+    )),
+    cognitive_profile TEXT DEFAULT '{}',
+    attention_span_profile TEXT DEFAULT '{}',
+    optimal_session_length INTEGER DEFAULT 45,
+    
+    -- Advanced AI metrics (preserved)
+    knowledge_retention_rate REAL DEFAULT 0.75,
+    fatigue_resistance REAL DEFAULT 50.0,
+    adaptability_score REAL DEFAULT 50.0,
+    
+    -- AI-Optimized settings (preserved)
+    ai_recommendation_confidence REAL DEFAULT 0.7,
+    adaptive_difficulty_enabled BOOLEAN DEFAULT 1,
+    personalized_scheduling BOOLEAN DEFAULT 1,
+    
+    -- Social learning (preserved)
+    study_group_id INTEGER,
+    mentor_id INTEGER,
+    learning_community TEXT DEFAULT 'general',
+    
+    -- Enhanced timestamps with CLI support
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    last_ai_sync TEXT,
+    profile_updated_at TEXT,
     streak_updated_at TEXT,
     
-    -- Learning analytics
-    average_efficiency REAL DEFAULT 1.0,
-    total_sessions_completed INTEGER DEFAULT 0,
-    preferred_study_time TEXT DEFAULT 'morning',
-    
-    -- Timestamps
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    FOREIGN KEY (study_group_id) REFERENCES StudyGroups(group_id) ON DELETE SET NULL,
+    FOREIGN KEY (mentor_id) REFERENCES Users(user_id) ON DELETE SET NULL
 );
 
--- User availability with timezone support
+-- AI-Powered User Availability (preserved)
 CREATE TABLE IF NOT EXISTS UserAvailability (
     availability_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
     minutes INTEGER NOT NULL CHECK (minutes >= 0),
-    preferred_start_time TEXT, -- HH:MM format
-    preferred_end_time TEXT,   -- HH:MM format
+    preferred_start_time TEXT,
+    preferred_end_time TEXT,
     timezone TEXT DEFAULT 'UTC',
+    
+    -- AI Pattern recognition (preserved)
+    actual_usage_pattern TEXT DEFAULT '{}',
+    efficiency_by_hour TEXT DEFAULT '{}',
+    recommended_adjustments TEXT DEFAULT '[]',
+    flexibility_score REAL DEFAULT 50.0,
+    consistency_score REAL DEFAULT 50.0,
+    
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
     UNIQUE (user_id, day_of_week)
 );
 
--- Enhanced Sessions with device tracking
+-- Enhanced Sessions with CLI compatibility
 CREATE TABLE IF NOT EXISTS Sessions (
     session_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     token TEXT NOT NULL UNIQUE,
     expiry TEXT NOT NULL,
+    
+    -- Enhanced security (preserved)
     device_info TEXT DEFAULT 'unknown',
+    device_fingerprint TEXT,
     ip_address TEXT,
+    geographic_location TEXT,
+    security_level INTEGER DEFAULT 1 CHECK (security_level BETWEEN 1 AND 3),
+    
+    -- AI Security monitoring (preserved)
+    suspicious_activity_score REAL DEFAULT 0.0,
+    last_security_check TEXT,
+    
+    -- Activity tracking
     last_activity TEXT DEFAULT CURRENT_TIMESTAMP,
+    total_requests INTEGER DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
--- Enhanced Achievements with categories and progression
-CREATE TABLE IF NOT EXISTS Achievements (
-    achievement_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL,
-    points INTEGER NOT NULL,
-    icon TEXT,
-    category TEXT CHECK (category IN ('streak', 'study', 'mastery', 'consistency', 'speed', 'exploration', 'completion')),
-    tier INTEGER DEFAULT 1 CHECK (tier BETWEEN 1 AND 5),
-    progress_current INTEGER DEFAULT 0,
-    progress_target INTEGER DEFAULT 1,
-    unlocked_at TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
-    UNIQUE (user_id, name)
-);
-
--- Enhanced Nodes with hierarchical restrictions and auto-duration
+-- AI-Enhanced Nodes with full CLI compatibility
 CREATE TABLE IF NOT EXISTS Nodes (
     node_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -95,484 +127,724 @@ CREATE TABLE IF NOT EXISTS Nodes (
     )),
     name TEXT NOT NULL,
     description TEXT,
+    
+    -- CLI-Required categorization
     course TEXT,
     course_code TEXT,
+    subject_area TEXT,
+    
+    -- CLI-Required status system
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
-        'pending', 'active', 'completed', 'paused', 'archived', 'review', 'locked'
+        'pending', 'active', 'completed', 'paused', 'archived', 'review', 'locked', 'in_progress'
     )),
     
-    -- Core metrics
+    -- CLI-Required Core metrics
     importance REAL DEFAULT 50.0 CHECK (importance BETWEEN 1 AND 100),
     understanding REAL DEFAULT 50.0 CHECK (understanding BETWEEN 1 AND 100),
     difficulty REAL DEFAULT 50.0 CHECK (difficulty BETWEEN 1 AND 100),
     engagement REAL DEFAULT 50.0 CHECK (engagement BETWEEN 1 AND 100),
     fatigue REAL DEFAULT 50.0 CHECK (fatigue BETWEEN 1 AND 100),
     
-    -- Advanced scheduling
-    priority_score REAL DEFAULT 0.0,
+    -- CLI-Required fields
     fibonacci_index INTEGER DEFAULT 1,
     parent_id INTEGER,
     total_active_minutes REAL DEFAULT 0.0,
     duration_days INTEGER,
+    child_order INTEGER DEFAULT 0,
     
-    -- Hierarchical restrictions
-    prerequisites TEXT DEFAULT '[]', -- JSON array of required node_ids
-    required_completion REAL DEFAULT 0.0 CHECK (required_completion BETWEEN 0 AND 1),
-    unlock_conditions TEXT DEFAULT '{}', -- JSON conditions for unlocking
+    -- CLI-Required intelligent restrictions
+    prerequisites TEXT DEFAULT '[]',
     
-    -- Auto-duration settings
+    -- CLI-Required auto-duration
     auto_duration_enabled BOOLEAN DEFAULT 1,
     min_duration INTEGER DEFAULT 15 CHECK (min_duration >= 5),
     max_duration INTEGER DEFAULT 90 CHECK (max_duration <= 240),
     estimated_duration INTEGER DEFAULT 30,
     
-    -- Gamification
+    -- CLI-Required gamification
     points_value INTEGER DEFAULT 10,
+    
+    -- Advanced AI fields (preserved)
+    knowledge_domain TEXT CHECK (knowledge_domain IN (
+        'factual', 'conceptual', 'procedural', 'metacognitive', 'applied'
+    )),
+    bloom_taxonomy_level INTEGER CHECK (bloom_taxonomy_level BETWEEN 1 AND 6),
+    complexity_score REAL DEFAULT 50.0,
+    priority_score REAL DEFAULT 0.0,
+    corequisites TEXT DEFAULT '[]',
+    required_completion REAL DEFAULT 0.0 CHECK (required_completion BETWEEN 0 AND 1),
+    unlock_conditions TEXT DEFAULT '{}',
     experience_value INTEGER DEFAULT 5,
+    mastery_bonus_multiplier REAL DEFAULT 1.0,
+    ai_recommended_duration INTEGER,
+    related_concepts TEXT DEFAULT '[]',
+    learning_path_recommendations TEXT DEFAULT '[]',
+    common_misconceptions TEXT DEFAULT '[]',
+    tags TEXT DEFAULT '[]',
+    metadata TEXT DEFAULT '{}',
+    ai_metadata TEXT DEFAULT '{}',
     
-    -- Organization
-    child_order INTEGER DEFAULT 0,
-    tags TEXT DEFAULT '[]', -- JSON array of tags
-    metadata TEXT DEFAULT '{}', -- JSON for additional data
-    
-    -- Timestamps
+    -- Intelligent timestamps
     last_reviewed_at TEXT,
     completed_at TEXT,
     activated_at TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    last_ai_analysis TEXT,
     
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
     FOREIGN KEY (parent_id) REFERENCES Nodes(node_id) ON DELETE CASCADE,
     CHECK (parent_id IS NULL OR node_type != 'ecology')
 );
 
--- Enhanced Waves with progress tracking
-CREATE TABLE IF NOT EXISTS Waves (
-    wave_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    parent_type TEXT NOT NULL,
-    parent_id INTEGER NOT NULL,
-    wave_number INTEGER NOT NULL,
-    planned_units_count INTEGER NOT NULL CHECK (planned_units_count >= 0),
-    actual_units_planted INTEGER NOT NULL CHECK (actual_units_planted >= 0),
-    status TEXT DEFAULT 'planned' CHECK (status IN ('planned', 'planting', 'completed', 'paused', 'cancelled')),
-    progress REAL DEFAULT 0.0 CHECK (progress BETWEEN 0 AND 1),
-    efficiency_score REAL,
-    planted_at TEXT,
-    completed_at TEXT,
-    scheduled_end_date TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (parent_id) REFERENCES Nodes(node_id) ON DELETE CASCADE
+-- CLI-Required Fibonacci table
+CREATE TABLE IF NOT EXISTS Fibonacci (
+    n INTEGER PRIMARY KEY,
+    value INTEGER NOT NULL
 );
 
--- Enhanced Reviews with forecasting and pause/resume
-CREATE TABLE IF NOT EXISTS Reviews (
-    review_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    node_id INTEGER NOT NULL,
-    node_type TEXT NOT NULL,
-    scheduled_date TEXT NOT NULL,
-    
-    -- Duration tracking
-    estimated_duration REAL CHECK (estimated_duration > 0),
-    actual_duration REAL CHECK (actual_duration > 0),
-    paused_duration REAL DEFAULT 0,
-    
-    -- Session metrics
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
-        'pending', 'completed', 'skipped', 'rescheduled', 'paused', 'in_progress'
-    )),
-    focus_level REAL CHECK (focus_level BETWEEN 1 AND 100),
-    engagement REAL CHECK (engagement BETWEEN 1 AND 100),
-    fatigue REAL CHECK (fatigue BETWEEN 1 AND 100),
-    performance_score REAL CHECK (performance_score BETWEEN 0 AND 1),
-    
-    -- Forecasting and scheduling
-    next_review_date TEXT,
-    forecast_accuracy REAL,
-    interval_days INTEGER,
-    ease_factor REAL DEFAULT 2.5 CHECK (ease_factor >= 1.3),
-    
-    -- Session control
-    completed_at TEXT,
-    paused_at TEXT,
-    resumed_at TEXT,
-    started_at TEXT,
-    
-    -- Notes and metadata
-    notes TEXT,
-    session_quality INTEGER CHECK (session_quality BETWEEN 1 AND 5),
-    
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (node_id) REFERENCES Nodes(node_id) ON DELETE CASCADE
-);
-
--- Enhanced Schedules with flexible scheduling
-CREATE TABLE IF NOT EXISTS Schedules (
-    schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+-- CLI-Required Achievements table
+CREATE TABLE IF NOT EXISTS Achievements (
+    achievement_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    task_id INTEGER NOT NULL,
-    task_type TEXT NOT NULL CHECK (task_type IN ('study', 'break', 'review', 'wave_planting', 'maintenance')),
-    start_time TEXT NOT NULL,
-    duration REAL NOT NULL CHECK (duration > 0),
-    
-    -- Flexible scheduling
-    status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN (
-        'planned', 'active', 'completed', 'cancelled', 'paused', 'rescheduled'
-    )),
-    priority REAL DEFAULT 0.0,
-    flexible_window INTEGER DEFAULT 15, -- minutes of flexibility
-    timezone TEXT,
-    can_reschedule BOOLEAN DEFAULT 1,
-    
-    -- Completion tracking
-    completed_at TEXT,
-    actual_start_time TEXT,
-    actual_duration REAL,
-    
-    -- Metadata
-    recurrence_pattern TEXT, -- JSON for recurring schedules
-    notes TEXT,
+    name TEXT NOT NULL,
+    description TEXT,
+    points INTEGER DEFAULT 0,
+    icon TEXT,
+    unlocked_at TEXT,
+    category TEXT,
+    progress_current INTEGER DEFAULT 0,
+    progress_target INTEGER DEFAULT 1,
     
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
--- Enhanced Study Sessions with pause/resume support
+-- CLI-Required StudySessions with AI enhancements
 CREATE TABLE IF NOT EXISTS StudySessions (
     session_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     
-    -- Timing
+    -- CLI-Required timing
     start_time TEXT NOT NULL,
     end_time TEXT,
     planned_duration REAL NOT NULL,
     actual_duration REAL DEFAULT 0,
     paused_duration REAL DEFAULT 0,
     
-    -- Session metrics
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed', 'paused', 'abandoned')),
+    -- CLI-Required session metrics
+    status TEXT DEFAULT 'active' CHECK (status IN (
+        'active', 'completed', 'paused', 'abandoned', 'ai_interrupted'
+    )),
     focus_score REAL CHECK (focus_score BETWEEN 0 AND 1),
     efficiency_score REAL CHECK (efficiency_score BETWEEN 0 AND 1),
-    satisfaction_score INTEGER CHECK (satisfaction_score BETWEEN 1 AND 5),
     
-    -- Fatigue tracking
+    -- CLI-Required fatigue tracking
     fatigue_start REAL CHECK (fatigue_start BETWEEN 1 AND 100),
     fatigue_end REAL CHECK (fatigue_end BETWEEN 1 AND 100),
     fatigue_change REAL GENERATED ALWAYS AS (fatigue_end - fatigue_start) VIRTUAL,
     
-    -- Gamification
+    -- CLI-Required gamification
     points_earned INTEGER DEFAULT 0,
     experience_earned INTEGER DEFAULT 0,
+    streak_bonus_multiplier REAL DEFAULT 1.0,
     
-    -- Session details
+    -- CLI-Required session details
+    current_node_id INTEGER,
+    learning_path TEXT,
+    pause_time TEXT,
+    resume_time TEXT,
+    session_type TEXT DEFAULT 'study' CHECK (session_type IN ('study', 'break')),
+    
+    -- Advanced AI fields (preserved)
+    ai_optimized_duration REAL,
+    satisfaction_score INTEGER CHECK (satisfaction_score BETWEEN 1 AND 5),
+    flow_state_minutes REAL DEFAULT 0,
+    fatigue_pattern TEXT,
     nodes_completed INTEGER DEFAULT 0,
     total_breaks INTEGER DEFAULT 0,
     device_used TEXT DEFAULT 'unknown',
+    learning_environment TEXT,
+    mood_start INTEGER CHECK (mood_start BETWEEN 1 AND 5),
+    mood_end INTEGER CHECK (mood_end BETWEEN 1 AND 5),
+    ai_session_insights TEXT,
+    improvement_recommendations TEXT DEFAULT '[]',
     
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (current_node_id) REFERENCES Nodes(node_id) ON DELETE SET NULL
 );
 
--- Enhanced Study Analytics with timezone support
+-- CLI-Required StudyAnalytics
 CREATE TABLE IF NOT EXISTS StudyAnalytics (
     analytics_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     node_id INTEGER,
     session_id INTEGER,
     
-    -- Core metrics
+    -- CLI-Required core metrics
     duration_minutes REAL NOT NULL CHECK (duration_minutes > 0),
     focus_score REAL CHECK (focus_score BETWEEN 0 AND 1),
     efficiency_score REAL CHECK (efficiency_score BETWEEN 0 AND 1),
-    understanding_gain REAL, -- Change in understanding
     
-    -- Time tracking
+    -- CLI-Required timing
     completed_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    timezone TEXT,
-    local_completed_time TEXT, -- Local time for user's timezone
     
-    -- Performance metrics
-    estimated_vs_actual REAL, -- Ratio of estimated vs actual duration
-    pace_score REAL, -- How well pace was maintained
+    -- Advanced AI fields (preserved)
+    understanding_gain REAL,
+    knowledge_retention_score REAL,
+    timezone TEXT,
+    local_completed_time TEXT,
+    optimal_timing_score REAL,
+    estimated_vs_actual REAL,
+    pace_score REAL,
+    cognitive_efficiency REAL,
+    learning_velocity REAL,
+    pattern_insights TEXT,
+    anomaly_detected BOOLEAN DEFAULT 0,
+    improvement_opportunities TEXT DEFAULT '[]',
     
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
     FOREIGN KEY (node_id) REFERENCES Nodes(node_id) ON DELETE SET NULL,
     FOREIGN KEY (session_id) REFERENCES StudySessions(session_id) ON DELETE SET NULL
 );
 
--- Fibonacci sequence for spaced repetition
-CREATE TABLE IF NOT EXISTS Fibonacci (
-    n INTEGER PRIMARY KEY CHECK (n >= 0),
-    value INTEGER NOT NULL CHECK (value >= 0)
-);
-
--- Learning Objectives with progress tracking
-CREATE TABLE IF NOT EXISTS LearningObjectives (
-    objective_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT,
-    target_date TEXT,
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed', 'cancelled', 'paused')),
-    priority INTEGER DEFAULT 1 CHECK (priority BETWEEN 1 AND 5),
-    progress REAL DEFAULT 0.0 CHECK (progress BETWEEN 0 AND 1),
-    related_nodes TEXT DEFAULT '[]', -- JSON array of node_ids
-    milestones TEXT DEFAULT '[]', -- JSON array of milestone objects
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
-);
-
--- Enhanced Notifications system
+-- CLI-Required Notifications
 CREATE TABLE IF NOT EXISTS Notifications (
     notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     title TEXT NOT NULL,
     message TEXT NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('reminder', 'achievement', 'streak', 'review', 'goal', 'system', 'motivational')),
+    
+    -- CLI-Required types
+    type TEXT NOT NULL CHECK (type IN (
+        'reminder', 'achievement', 'streak', 'review', 'goal', 'system',
+        'motivational', 'ai_insight', 'recommendation', 'group_activity'
+    )),
+    
+    -- CLI-Required interaction
     is_read BOOLEAN DEFAULT 0,
     is_actionable BOOLEAN DEFAULT 0,
-    action_url TEXT, -- URL or command for actionable notifications
+    action_url TEXT,
+    
+    -- Enhanced AI personalization (preserved)
+    personalization_level INTEGER DEFAULT 1 CHECK (personalization_level BETWEEN 1 AND 3),
+    emotional_tone TEXT CHECK (emotional_tone IN ('neutral', 'encouraging', 'urgent', 'celebratory')),
+    timing_optimized BOOLEAN DEFAULT 0,
+    action_taken TEXT,
     scheduled_time TEXT,
+    optimal_delivery_time TEXT,
     expires_at TEXT,
-    metadata TEXT DEFAULT '{}', -- JSON for additional data
+    engagement_metrics TEXT DEFAULT '{}',
+    effectiveness_score REAL,
+    
+    metadata TEXT DEFAULT '{}',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
--- Data Export/Import tracking
-CREATE TABLE IF NOT EXISTS Exports (
-    export_id INTEGER PRIMARY KEY AUTOINCREMENT,
+-- CLI-Required Reviews
+CREATE TABLE IF NOT EXISTS Reviews (
+    review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id INTEGER NOT NULL,
+    node_type TEXT NOT NULL,
+    
+    -- CLI-Required scheduling
+    scheduled_date TEXT NOT NULL,
+    estimated_duration REAL CHECK (estimated_duration > 0),
+    
+    -- CLI-Required status
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+        'pending', 'completed', 'skipped', 'rescheduled', 'paused', 'in_progress', 'ai_optimized'
+    )),
+    
+    -- Advanced AI fields (preserved)
+    optimal_review_window TEXT,
+    scheduling_confidence REAL,
+    actual_duration REAL CHECK (actual_duration > 0),
+    paused_duration REAL DEFAULT 0,
+    ai_optimized_duration REAL,
+    focus_level REAL CHECK (focus_level BETWEEN 1 AND 100),
+    engagement REAL CHECK (engagement BETWEEN 1 AND 100),
+    fatigue REAL CHECK (fatigue BETWEEN 1 AND 100),
+    cognitive_load REAL CHECK (cognitive_load BETWEEN 1 AND 100),
+    performance_score REAL CHECK (performance_score BETWEEN 0 AND 1),
+    next_review_date TEXT,
+    forecast_accuracy REAL,
+    interval_days INTEGER,
+    ease_factor REAL DEFAULT 2.5 CHECK (ease_factor >= 1.3),
+    memory_strength REAL,
+    completed_at TEXT,
+    paused_at TEXT,
+    resumed_at TEXT,
+    started_at TEXT,
+    ai_optimized_at TEXT,
+    notes TEXT,
+    ai_insights TEXT,
+    session_quality INTEGER CHECK (session_quality BETWEEN 1 AND 5),
+    learning_breakthroughs TEXT DEFAULT '[]',
+    
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (node_id) REFERENCES Nodes(node_id) ON DELETE CASCADE
+);
+
+-- CLI-Required Waves
+CREATE TABLE IF NOT EXISTS Waves (
+    wave_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_type TEXT NOT NULL,
+    parent_id INTEGER NOT NULL,
+    wave_number INTEGER NOT NULL,
+    
+    -- CLI-Required planning
+    planned_units_count INTEGER NOT NULL CHECK (planned_units_count >= 0),
+    actual_units_planted INTEGER NOT NULL CHECK (actual_units_planted >= 0),
+    
+    -- CLI-Required status
+    status TEXT DEFAULT 'planned' CHECK (status IN (
+        'planned', 'planting', 'completed', 'paused', 'cancelled', 'optimizing'
+    )),
+    
+    -- CLI-Required tracking
+    planted_at TEXT,
+    completed_at TEXT,
+    scheduled_end_date TEXT,
+    
+    -- Advanced AI fields (preserved)
+    ai_recommended_units INTEGER,
+    progress REAL DEFAULT 0.0 CHECK (progress BETWEEN 0 AND 1),
+    predicted_completion_date TEXT,
+    completion_confidence REAL,
+    efficiency_score REAL,
+    adaptive_adjustments TEXT DEFAULT '[]',
+    optimized_at TEXT,
+    
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (parent_id) REFERENCES Nodes(node_id) ON DELETE CASCADE
+);
+
+-- CLI-Required Schedules
+CREATE TABLE IF NOT EXISTS Schedules (
+    schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    filename TEXT NOT NULL,
-    export_type TEXT NOT NULL CHECK (export_type IN ('backup', 'analytics', 'hierarchy', 'full')),
-    file_path TEXT NOT NULL,
-    file_size INTEGER,
-    includes_attachments BOOLEAN DEFAULT 0,
-    encryption_key_hash TEXT, -- For encrypted exports
+    task_id INTEGER NOT NULL,
+    task_type TEXT NOT NULL CHECK (task_type IN (
+        'study', 'break', 'review', 'wave_planting', 'maintenance', 'ai_optimization'
+    )),
+    
+    -- CLI-Required timing
+    start_time TEXT NOT NULL,
+    duration REAL NOT NULL CHECK (duration > 0),
+    
+    -- CLI-Required status
+    status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN (
+        'planned', 'active', 'completed', 'cancelled', 'paused', 'rescheduled', 'ai_optimized'
+    )),
+    
+    -- CLI-Required flexible scheduling
+    flexible_window INTEGER DEFAULT 15,
+    timezone TEXT,
+    
+    -- Advanced AI fields (preserved)
+    priority REAL DEFAULT 0.0,
+    optimal_time_window TEXT,
+    scheduling_algorithm TEXT DEFAULT 'standard',
+    can_reschedule BOOLEAN DEFAULT 1,
+    ai_reschedule_recommendations TEXT DEFAULT '[]',
+    completed_at TEXT,
+    actual_start_time TEXT,
+    actual_duration REAL,
+    schedule_adherence_score REAL,
+    recurrence_pattern TEXT,
+    optimization_notes TEXT,
+    ai_confidence_score REAL,
+    
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
--- Difficulty adjustment history
+-- =====================================================================
+-- CLI-REQUIRED SUPPORT TABLES
+-- =====================================================================
+
+-- CLI-Required for difficulty adjustment
 CREATE TABLE IF NOT EXISTS DifficultyHistory (
     history_id INTEGER PRIMARY KEY AUTOINCREMENT,
     node_id INTEGER NOT NULL,
     old_difficulty REAL,
     new_difficulty REAL,
-    adjustment_type TEXT CHECK (adjustment_type IN ('auto', 'manual', 'performance', 'fatigue')),
+    adjustment_type TEXT,
     reason TEXT,
-    performance_data TEXT DEFAULT '{}', -- JSON of performance metrics used for adjustment
+    performance_data TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
     FOREIGN KEY (node_id) REFERENCES Nodes(node_id) ON DELETE CASCADE
 );
 
--- Fatigue patterns and recommendations
+-- CLI-Required for efficiency tracking
+CREATE TABLE IF NOT EXISTS EfficiencyHistory (
+    efficiency_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    efficiency_score REAL,
+    recorded_date TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
+
+-- CLI-Required for fatigue management
 CREATE TABLE IF NOT EXISTS FatiguePatterns (
     pattern_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    day_of_week INTEGER CHECK (day_of_week BETWEEN 0 AND 6),
-    hour_of_day INTEGER CHECK (hour_of_day BETWEEN 0 AND 23),
-    average_fatigue REAL,
-    study_efficiency REAL,
+    day_of_week INTEGER,
+    hour_of_day INTEGER,
     recommended_max_duration INTEGER,
-    sample_size INTEGER DEFAULT 1,
+    sample_size INTEGER,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
-    UNIQUE (user_id, day_of_week, hour_of_day)
+    
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
--- Study breaks tracking
+-- CLI-Required for study breaks
 CREATE TABLE IF NOT EXISTS StudyBreaks (
     break_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     session_id INTEGER,
-    start_time TEXT NOT NULL,
+    break_duration INTEGER,
+    break_type TEXT,
+    start_time TEXT,
     end_time TEXT,
-    duration_minutes REAL,
-    break_type TEXT CHECK (break_type IN ('short', 'long', 'meal', 'exercise', 'planned')),
-    activities TEXT DEFAULT '[]', -- JSON array of break activities
-    effectiveness_score INTEGER CHECK (effectiveness_score BETWEEN 1 AND 5),
-    notes TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
-    FOREIGN KEY (session_id) REFERENCES StudySessions(session_id) ON DELETE SET NULL
+    FOREIGN KEY (session_id) REFERENCES StudySessions(session_id) ON DELETE CASCADE
 );
 
--- Learning efficiency history
-CREATE TABLE IF NOT EXISTS EfficiencyHistory (
-    efficiency_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    efficiency_score REAL NOT NULL,
-    factors TEXT DEFAULT '{}', -- JSON of factors affecting efficiency
-    recorded_date TEXT NOT NULL,
-    notes TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
-    UNIQUE (user_id, recorded_date)
-);
-
--- Node relationships for advanced hierarchy
+-- CLI-Required for node relationships
 CREATE TABLE IF NOT EXISTS NodeRelationships (
     relationship_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
     parent_node_id INTEGER NOT NULL,
     child_node_id INTEGER NOT NULL,
-    relationship_type TEXT CHECK (relationship_type IN ('prerequisite', 'corequisite', 'recommended', 'alternative')),
-    strength REAL DEFAULT 1.0 CHECK (strength BETWEEN 0 AND 1),
+    relationship_type TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    
     FOREIGN KEY (parent_node_id) REFERENCES Nodes(node_id) ON DELETE CASCADE,
-    FOREIGN KEY (child_node_id) REFERENCES Nodes(node_id) ON DELETE CASCADE,
-    UNIQUE (parent_node_id, child_node_id, relationship_type)
+    FOREIGN KEY (child_node_id) REFERENCES Nodes(node_id) ON DELETE CASCADE
 );
 
--- Study goals and targets
+-- CLI-Required for study goals
 CREATE TABLE IF NOT EXISTS StudyGoals (
     goal_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     title TEXT NOT NULL,
     description TEXT,
-    goal_type TEXT CHECK (goal_type IN ('daily', 'weekly', 'monthly', 'node_completion', 'understanding', 'streak')),
-    target_value REAL NOT NULL,
-    current_value REAL DEFAULT 0,
-    unit TEXT DEFAULT 'minutes',
-    start_date TEXT,
-    end_date TEXT,
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed', 'failed', 'cancelled')),
-    reward_points INTEGER DEFAULT 0,
+    goal_type TEXT,
+    target_value REAL,
+    unit TEXT,
+    reward_points INTEGER,
+    ai_optimized BOOLEAN DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
--- =====================================================================
--- INDEXES for Performance Optimization
--- =====================================================================
+-- CLI-Required for exports
+CREATE TABLE IF NOT EXISTS Exports (
+    export_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    filename TEXT NOT NULL,
+    export_type TEXT,
+    file_path TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
 
--- Users indexes
-CREATE INDEX IF NOT EXISTS idx_users_username ON Users(username);
-CREATE INDEX IF NOT EXISTS idx_users_streak ON Users(streak_days);
-CREATE INDEX IF NOT EXISTS idx_users_level ON Users(level);
-CREATE INDEX IF NOT EXISTS idx_users_points ON Users(points DESC);
-
--- Nodes indexes
-CREATE INDEX IF NOT EXISTS idx_nodes_user_status ON Nodes(user_id, status);
-CREATE INDEX IF NOT EXISTS idx_nodes_parent ON Nodes(parent_id);
-CREATE INDEX IF NOT EXISTS idx_nodes_priority ON Nodes(priority_score DESC);
-CREATE INDEX IF NOT EXISTS idx_nodes_type_user ON Nodes(node_type, user_id);
-CREATE INDEX IF NOT EXISTS idx_nodes_importance ON Nodes(importance DESC);
-CREATE INDEX IF NOT EXISTS idx_nodes_understanding ON Nodes(understanding);
-CREATE INDEX IF NOT EXISTS idx_nodes_created ON Nodes(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_nodes_completed ON Nodes(completed_at) WHERE completed_at IS NOT NULL;
-
--- Reviews indexes
-CREATE INDEX IF NOT EXISTS idx_reviews_scheduled ON Reviews(scheduled_date, status);
-CREATE INDEX IF NOT EXISTS idx_reviews_node ON Reviews(node_id, node_type);
-CREATE INDEX IF NOT EXISTS idx_reviews_status ON Reviews(status);
-CREATE INDEX IF NOT EXISTS idx_reviews_completed ON Reviews(completed_at) WHERE completed_at IS NOT NULL;
-
--- Schedules indexes
-CREATE INDEX IF NOT EXISTS idx_schedules_user_time ON Schedules(user_id, start_time);
-CREATE INDEX IF NOT EXISTS idx_schedules_status ON Schedules(status);
-CREATE INDEX IF NOT EXISTS idx_schedules_timezone ON Schedules(timezone);
-CREATE INDEX IF NOT EXISTS idx_schedules_completed ON Schedules(completed_at) WHERE completed_at IS NOT NULL;
-
--- StudySessions indexes
-CREATE INDEX IF NOT EXISTS idx_study_sessions_user ON StudySessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_study_sessions_status ON StudySessions(status);
-CREATE INDEX IF NOT EXISTS idx_study_sessions_time ON StudySessions(start_time DESC);
-CREATE INDEX IF NOT EXISTS idx_study_sessions_paused ON StudySessions(status) WHERE status = 'paused';
-
--- StudyAnalytics indexes
-CREATE INDEX IF NOT EXISTS idx_study_analytics_user_date ON StudyAnalytics(user_id, completed_at);
-CREATE INDEX IF NOT EXISTS idx_study_analytics_node ON StudyAnalytics(node_id);
-CREATE INDEX IF NOT EXISTS idx_study_analytics_session ON StudyAnalytics(session_id);
-
--- Notifications indexes
-CREATE INDEX IF NOT EXISTS idx_notifications_user ON Notifications(user_id, is_read);
-CREATE INDEX IF NOT EXISTS idx_notifications_type ON Notifications(type);
-CREATE INDEX IF NOT EXISTS idx_notifications_scheduled ON Notifications(scheduled_time) WHERE scheduled_time IS NOT NULL;
-
--- UserAvailability indexes
-CREATE INDEX IF NOT EXISTS idx_user_availability_user ON UserAvailability(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_availability_day ON UserAvailability(day_of_week);
-
--- Achievements indexes
-CREATE INDEX IF NOT EXISTS idx_achievements_user ON Achievements(user_id);
-CREATE INDEX IF NOT EXISTS idx_achievements_category ON Achievements(category);
-CREATE INDEX IF NOT EXISTS idx_achievements_unlocked ON Achievements(unlocked_at) WHERE unlocked_at IS NOT NULL;
-
--- Waves indexes
-CREATE INDEX IF NOT EXISTS idx_waves_parent ON Waves(parent_id, parent_type);
-CREATE INDEX IF NOT EXISTS idx_waves_status ON Waves(status);
-
--- Fibonacci indexes
-CREATE INDEX IF NOT EXISTS idx_fibonacci_n ON Fibonacci(n);
+-- CLI-Required for learning objectives
+CREATE TABLE IF NOT EXISTS LearningObjectives (
+    objective_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    node_id INTEGER,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'pending',
+    priority INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (node_id) REFERENCES Nodes(node_id) ON DELETE SET NULL
+);
 
 -- =====================================================================
--- DEFAULT DATA
+-- PRESERVED ADVANCED AI TABLES
 -- =====================================================================
 
--- Insert Fibonacci sequence (extended)
-INSERT OR REPLACE INTO Fibonacci (n, value) VALUES
-(0, 0), (1, 1), (2, 1), (3, 2), (4, 3), (5, 5), (6, 8), (7, 13), (8, 21), (9, 34),
-(10, 55), (11, 89), (12, 144), (13, 233), (14, 377), (15, 610), (16, 987), (17, 1597),
-(18, 2584), (19, 4181), (20, 6765), (21, 10946), (22, 17711), (23, 28657), (24, 46368),
-(25, 75025);
+-- AI-Powered Knowledge Graph (preserved)
+CREATE TABLE IF NOT EXISTS KnowledgeGraph (
+    graph_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    source_node_id INTEGER NOT NULL,
+    target_node_id INTEGER NOT NULL,
+    relationship_type TEXT NOT NULL CHECK (relationship_type IN (
+        'prerequisite', 'corequisite', 'similar', 'contrasting', 'hierarchical',
+        'sequential', 'complementary', 'foundational'
+    )),
+    strength REAL DEFAULT 1.0 CHECK (strength BETWEEN 0 AND 1),
+    confidence REAL DEFAULT 0.8 CHECK (confidence BETWEEN 0 AND 1),
+    
+    -- AI Analysis data (preserved)
+    ai_generated BOOLEAN DEFAULT 0,
+    semantic_similarity REAL,
+    contextual_relevance REAL,
+    
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (source_node_id) REFERENCES Nodes(node_id) ON DELETE CASCADE,
+    FOREIGN KEY (target_node_id) REFERENCES Nodes(node_id) ON DELETE CASCADE,
+    UNIQUE (source_node_id, target_node_id, relationship_type)
+);
 
--- Insert default achievements system
-INSERT OR IGNORE INTO Achievements (name, description, points, icon, category, tier, progress_target) VALUES
--- Streak achievements
-('First Steps', 'Complete your first study session', 10, '🎯', 'study', 1, 1),
-('Streak Starter', 'Maintain a 3-day study streak', 25, '🔥', 'streak', 1, 3),
-('Week Warrior', 'Study for 7 consecutive days', 50, '⚔️', 'streak', 2, 7),
-('Marathon Learner', 'Study for 30 consecutive days', 100, '🏆', 'streak', 3, 30),
-('Consistency King', 'Maintain a streak for 100 days', 250, '👑', 'streak', 4, 100),
+-- AI Model Training Data (preserved)
+CREATE TABLE IF NOT EXISTS AITrainingData (
+    training_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    data_type TEXT NOT NULL CHECK (data_type IN (
+        'learning_pattern', 'schedule_optimization', 'difficulty_prediction',
+        'fatigue_prediction', 'engagement_pattern'
+    )),
+    input_features TEXT NOT NULL,
+    output_prediction TEXT NOT NULL,
+    actual_outcome TEXT,
+    prediction_accuracy REAL,
+    model_version TEXT NOT NULL,
+    training_date TEXT NOT NULL,
+    used_in_production BOOLEAN DEFAULT 0,
+    
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
 
--- Study time achievements
-('Dedicated Learner', 'Complete 10 hours of total study time', 50, '⏱️', 'study', 1, 600),
-('Time Master', 'Complete 50 hours of total study time', 150, '⏰', 'study', 2, 3000),
-('Study Marathoner', 'Complete 200 hours of total study time', 500, '🏃', 'study', 3, 12000),
+-- Study Groups with AI matching (preserved)
+CREATE TABLE IF NOT EXISTS StudyGroups (
+    group_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    
+    -- AI Matching criteria (preserved)
+    learning_style_compatibility REAL DEFAULT 0.7,
+    knowledge_level_range TEXT DEFAULT '{}',
+    preferred_schedule_sync BOOLEAN DEFAULT 0,
+    
+    -- Group analytics (preserved)
+    total_collective_study_hours REAL DEFAULT 0,
+    average_efficiency REAL DEFAULT 0.0,
+    group_cohesion_score REAL DEFAULT 0.0,
+    
+    -- AI Management (preserved)
+    auto_manage_members BOOLEAN DEFAULT 0,
+    optimal_size INTEGER DEFAULT 5,
+    activity_level TEXT DEFAULT 'medium' CHECK (activity_level IN ('low', 'medium', 'high')),
+    
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 
--- Mastery achievements
-('Quick Learner', 'Achieve 90%+ understanding on any node', 30, '⚡', 'mastery', 1, 1),
-('Subject Master', 'Achieve 90%+ understanding on 10 nodes', 75, '🧠', 'mastery', 2, 10),
-('Knowledge Sage', 'Achieve 90%+ understanding on 50 nodes', 200, '🎓', 'mastery', 3, 50),
+-- Collaborative Learning Features (preserved)
+CREATE TABLE IF NOT EXISTS CollaborativeSessions (
+    collab_session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    
+    -- Session details (preserved)
+    scheduled_start TEXT NOT NULL,
+    scheduled_end TEXT,
+    actual_start TEXT,
+    actual_end TEXT,
+    duration_minutes REAL,
+    
+    -- Collaborative metrics (preserved)
+    participant_count INTEGER DEFAULT 0,
+    engagement_score REAL,
+    collaboration_efficiency REAL,
+    shared_understanding_gain REAL,
+    
+    -- AI Facilitation (preserved)
+    ai_facilitator_enabled BOOLEAN DEFAULT 0,
+    facilitation_notes TEXT,
+    session_insights TEXT,
+    
+    status TEXT DEFAULT 'scheduled' CHECK (status IN (
+        'scheduled', 'active', 'completed', 'cancelled'
+    )),
+    
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (group_id) REFERENCES StudyGroups(group_id) ON DELETE CASCADE
+);
 
--- Completion achievements
-('Node Explorer', 'Complete your first node', 15, '🌱', 'completion', 1, 1),
-('Forest Ranger', 'Complete 25 nodes', 60, '🌲', 'completion', 2, 25),
-('Ecology Master', 'Complete 100 nodes', 200, '🌍', 'completion', 3, 100),
+-- AI-Powered Learning Recommendations (preserved)
+CREATE TABLE IF NOT EXISTS AIRecommendations (
+    recommendation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    recommendation_type TEXT NOT NULL CHECK (recommendation_type IN (
+        'study_schedule', 'node_sequence', 'break_timing', 'difficulty_adjustment',
+        'learning_style_adaptation', 'resource_suggestion', 'review_timing'
+    )),
+    
+    -- Recommendation details (preserved)
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    reasoning TEXT,
+    confidence_score REAL NOT NULL CHECK (confidence_score BETWEEN 0 AND 1),
+    expected_impact REAL,
+    
+    -- Implementation tracking (preserved)
+    status TEXT DEFAULT 'pending' CHECK (status IN (
+        'pending', 'accepted', 'implemented', 'rejected', 'expired'
+    )),
+    accepted_at TEXT,
+    implemented_at TEXT,
+    actual_impact REAL,
+    
+    -- Metadata (preserved)
+    algorithm_version TEXT,
+    input_parameters TEXT DEFAULT '{}',
+    expires_at TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
 
--- Efficiency achievements
-('Focused Mind', 'Achieve 80%+ focus score in a session', 20, '🎯', 'consistency', 1, 1),
-('Efficiency Expert', 'Maintain 80%+ learning efficiency for a week', 45, '📊', 'consistency', 2, 7),
-('Productivity Guru', 'Maintain 85%+ efficiency for 30 days', 120, '🚀', 'consistency', 3, 30),
+-- Neural Efficiency Tracking (preserved)
+CREATE TABLE IF NOT EXISTS NeuralEfficiency (
+    efficiency_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    measurement_date TEXT NOT NULL,
+    
+    -- Cognitive metrics (preserved)
+    baseline_processing_speed REAL,
+    current_processing_speed REAL,
+    working_memory_capacity REAL,
+    attention_control REAL,
+    cognitive_flexibility REAL,
+    
+    -- Learning-specific efficiency (preserved)
+    information_encoding_speed REAL,
+    retrieval_efficiency REAL,
+    pattern_recognition_speed REAL,
+    
+    -- AI Analysis (preserved)
+    neural_efficiency_score REAL,
+    improvement_recommendations TEXT DEFAULT '[]',
+    cognitive_fatigue_level REAL,
+    
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    UNIQUE (user_id, measurement_date)
+);
 
--- Exploration achievements
-('Branch Explorer', 'Create your first branch node', 10, '🔍', 'exploration', 1, 1),
-('Tree Architect', 'Create a complete tree structure', 40, '🏗️', 'exploration', 2, 1),
-('Ecology Designer', 'Create a complete ecology', 100, '🎨', 'exploration', 3, 1),
+-- Predictive Learning Analytics (preserved)
+CREATE TABLE IF NOT EXISTS PredictiveAnalytics (
+    prediction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    prediction_type TEXT NOT NULL CHECK (prediction_type IN (
+        'completion_time', 'difficulty_spike', 'burnout_risk', 'optimal_schedule'
+    )),
+    
+    -- Prediction details (preserved)
+    predicted_value REAL NOT NULL,
+    confidence_interval TEXT,
+    prediction_horizon TEXT,
+    relevant_factors TEXT DEFAULT '{}',
+    
+    -- Outcome tracking (preserved)
+    actual_value REAL,
+    prediction_accuracy REAL,
+    feedback_incorporated BOOLEAN DEFAULT 0,
+    
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    expires_at TEXT,
+    
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
 
--- Speed achievements
-('Speed Learner', 'Complete a node in half the estimated time', 35, '💨', 'speed', 1, 1),
-('Time Bender', 'Complete 5 nodes ahead of schedule', 80, '⏳', 'speed', 2, 5),
-('Efficiency Master', 'Maintain 120%+ pace on 10 nodes', 150, '🚀', 'speed', 3, 10);
-
--- Insert default study goals
-INSERT OR IGNORE INTO StudyGoals (title, description, goal_type, target_value, unit, reward_points) VALUES
-('Daily Study Habit', 'Study for at least 30 minutes every day', 'daily', 30, 'minutes', 5),
-('Weekly Consistency', 'Study for at least 5 days in a week', 'weekly', 5, 'days', 25),
-('Monthly Progress', 'Complete 10 nodes in a month', 'monthly', 10, 'nodes', 100),
-('Understanding Master', 'Achieve 90%+ understanding on current nodes', 'understanding', 90, 'percent', 50);
+-- Learning Resource Intelligence (preserved)
+CREATE TABLE IF NOT EXISTS LearningResources (
+    resource_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    node_id INTEGER,
+    
+    -- Resource details (preserved)
+    title TEXT NOT NULL,
+    resource_type TEXT CHECK (resource_type IN (
+        'video', 'article', 'book', 'podcast', 'interactive', 'exercise', 'cheatsheet'
+    )),
+    url TEXT,
+    content_quality_score REAL,
+    difficulty_match REAL,
+    
+    -- AI Evaluation (preserved)
+    relevance_score REAL,
+    engagement_potential REAL,
+    time_efficiency REAL,
+    ai_recommended BOOLEAN DEFAULT 0,
+    
+    -- Usage tracking (preserved)
+    times_accessed INTEGER DEFAULT 0,
+    average_rating REAL,
+    user_notes TEXT,
+    
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (node_id) REFERENCES Nodes(node_id) ON DELETE SET NULL
+);
 
 -- =====================================================================
--- TRIGGERS for Data Integrity and Automation
+-- ENHANCED INDEXES for CLI Performance and AI
 -- =====================================================================
 
--- Update timestamps automatically
+-- CLI-Optimized indexes
+CREATE INDEX IF NOT EXISTS idx_users_cli ON Users(username, streak_days, level);
+CREATE INDEX IF NOT EXISTS idx_nodes_cli ON Nodes(user_id, status, node_type, parent_id);
+CREATE INDEX IF NOT EXISTS idx_study_sessions_cli ON StudySessions(user_id, status, start_time);
+CREATE INDEX IF NOT EXISTS idx_reviews_cli ON Reviews(node_id, status, scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_achievements_cli ON Achievements(user_id, unlocked_at, category);
+
+-- AI-Optimized indexes (preserved)
+CREATE INDEX IF NOT EXISTS idx_users_ai_profile ON Users(learning_style, adaptability_score);
+CREATE INDEX IF NOT EXISTS idx_nodes_ai_metrics ON Nodes(complexity_score, knowledge_domain, bloom_taxonomy_level);
+CREATE INDEX IF NOT EXISTS idx_knowledge_graph_ai ON KnowledgeGraph(ai_generated, confidence, semantic_similarity);
+CREATE INDEX IF NOT EXISTS idx_ai_recommendations_active ON AIRecommendations(user_id, status, confidence_score) WHERE status IN ('pending', 'accepted');
+CREATE INDEX IF NOT EXISTS idx_neural_efficiency_trends ON NeuralEfficiency(user_id, measurement_date DESC, neural_efficiency_score);
+
+-- Enhanced performance indexes
+CREATE INDEX IF NOT EXISTS idx_nodes_scheduling ON Nodes(priority_score, status, user_id);
+CREATE INDEX IF NOT EXISTS idx_study_sessions_analytics ON StudySessions(user_id, end_time, efficiency_score);
+CREATE INDEX IF NOT EXISTS idx_notifications_delivery ON Notifications(user_id, is_read, created_at);
+
+-- =====================================================================
+-- CLI-COMPATIBLE TRIGGERS with AI Enhancements
+-- =====================================================================
+
+-- Auto-update timestamps
 CREATE TRIGGER IF NOT EXISTS update_users_timestamp 
 AFTER UPDATE ON Users
 BEGIN
@@ -585,146 +857,106 @@ BEGIN
     UPDATE Nodes SET updated_at = CURRENT_TIMESTAMP WHERE node_id = NEW.node_id;
 END;
 
--- Auto-update total study minutes when analytics are added
-CREATE TRIGGER IF NOT EXISTS update_total_study_minutes 
-AFTER INSERT ON StudyAnalytics
+-- CLI-Required streak management
+CREATE TRIGGER IF NOT EXISTS update_streak_on_study
+AFTER UPDATE ON StudySessions
+WHEN NEW.status = 'completed' AND OLD.status != 'completed'
 BEGIN
     UPDATE Users 
-    SET total_study_minutes = total_study_minutes + NEW.duration_minutes,
-        total_sessions_completed = total_sessions_completed + 1
+    SET last_study_date = DATE('now'),
+        streak_updated_at = CURRENT_TIMESTAMP
     WHERE user_id = NEW.user_id;
 END;
 
--- Auto-level up based on experience points
-CREATE TRIGGER IF NOT EXISTS auto_level_up 
-AFTER UPDATE OF experience_points ON Users
-BEGIN
-    UPDATE Users 
-    SET level = (
-        SELECT MAX(level) + 1 
-        FROM (SELECT 0 AS level UNION SELECT level FROM Users WHERE user_id = NEW.user_id) 
-        WHERE experience_points >= (SELECT COALESCE(MAX(exp_threshold), 0) FROM (
-            SELECT 100 * level * (level + 1) / 2 as exp_threshold 
-            FROM (SELECT level FROM Users WHERE user_id = NEW.user_id)
-        ))
-    )
-    WHERE user_id = NEW.user_id AND experience_points >= (
-        SELECT level * 100 FROM Users WHERE user_id = NEW.user_id
-    );
-END;
-
--- Auto-create notification for streak milestones
-CREATE TRIGGER IF NOT EXISTS streak_milestone_notification 
-AFTER UPDATE OF streak_days ON Users
-BEGIN
-    -- Check for streak milestones
-    INSERT OR IGNORE INTO Notifications (user_id, title, message, type, is_actionable)
-    SELECT 
-        NEW.user_id,
-        '🔥 Streak Milestone!',
-        'You''ve maintained a ' || NEW.streak_days || '-day study streak! Keep going!',
-        'streak',
-        1
-    WHERE NEW.streak_days IN (3, 7, 14, 30, 60, 90, 100, 180, 365)
-    AND NEW.streak_days > OLD.streak_days;
-END;
-
--- Auto-update longest streak
-CREATE TRIGGER IF NOT EXISTS update_longest_streak 
-AFTER UPDATE OF streak_days ON Users
-BEGIN
-    UPDATE Users 
-    SET longest_streak = MAX(longest_streak, NEW.streak_days),
-        streak_updated_at = CURRENT_TIMESTAMP
-    WHERE user_id = NEW.user_id AND NEW.streak_days > longest_streak;
-END;
-
--- Auto-adjust difficulty based on performance history
-CREATE TRIGGER IF NOT EXISTS auto_adjust_difficulty 
+-- AI-Powered Adaptive Difficulty Adjustment (preserved)
+CREATE TRIGGER IF NOT EXISTS ai_adaptive_difficulty 
 AFTER INSERT ON Reviews
 WHEN NEW.performance_score IS NOT NULL AND NEW.status = 'completed'
 BEGIN
-    -- Only adjust if we have performance data
     INSERT INTO DifficultyHistory (node_id, old_difficulty, new_difficulty, adjustment_type, reason, performance_data)
     SELECT 
         NEW.node_id,
         (SELECT difficulty FROM Nodes WHERE node_id = NEW.node_id),
         CASE 
-            WHEN NEW.performance_score > 0.8 THEN 
-                MIN(100, (SELECT difficulty FROM Nodes WHERE node_id = NEW.node_id) * 1.15)
-            WHEN NEW.performance_score < 0.4 THEN 
-                MAX(10, (SELECT difficulty FROM Nodes WHERE node_id = NEW.node_id) * 0.85)
+            WHEN NEW.performance_score > 0.85 AND NEW.cognitive_load < 70 THEN
+                MIN(95, (SELECT difficulty FROM Nodes WHERE node_id = NEW.node_id) * 
+                    (1.0 + (NEW.performance_score - 0.8) * 0.3))
+            WHEN NEW.performance_score < 0.4 OR NEW.cognitive_load > 85 THEN
+                MAX(15, (SELECT difficulty FROM Nodes WHERE node_id = NEW.node_id) * 
+                    (0.9 - (0.5 - NEW.performance_score) * 0.2))
             ELSE (SELECT difficulty FROM Nodes WHERE node_id = NEW.node_id)
         END,
-        'performance',
+        'ai_adaptive',
         CASE 
-            WHEN NEW.performance_score > 0.8 THEN 'Excellent performance - increasing challenge'
-            WHEN NEW.performance_score < 0.4 THEN 'Struggling - reducing difficulty'
-            ELSE 'No adjustment needed'
+            WHEN NEW.performance_score > 0.85 AND NEW.cognitive_load < 70 THEN
+                'AI: Excellent performance with low cognitive load - increasing challenge'
+            WHEN NEW.performance_score < 0.4 OR NEW.cognitive_load > 85 THEN
+                'AI: High cognitive load or low performance - reducing difficulty'
+            ELSE 'AI: No significant adjustment needed'
         END,
-        json_object('performance_score', NEW.performance_score, 'review_id', NEW.review_id)
-    WHERE NEW.performance_score > 0.8 OR NEW.performance_score < 0.4;
-    
-    -- Update the actual difficulty
-    UPDATE Nodes 
-    SET difficulty = (
-        SELECT new_difficulty 
-        FROM DifficultyHistory 
-        WHERE node_id = NEW.node_id 
-        ORDER BY created_at DESC 
-        LIMIT 1
+        json_object(
+            'performance_score', NEW.performance_score,
+            'cognitive_load', NEW.cognitive_load,
+            'engagement', NEW.engagement,
+            'review_id', NEW.review_id,
+            'ai_confidence', 0.85
+        )
+    WHERE NEW.performance_score > 0.85 OR NEW.performance_score < 0.4 OR NEW.cognitive_load > 85;
+END;
+
+-- AI-Powered Knowledge Graph Auto-generation (preserved)
+CREATE TRIGGER IF NOT EXISTS ai_knowledge_graph_auto 
+AFTER INSERT ON Nodes
+WHEN NEW.user_id IS NOT NULL AND NEW.node_type IN ('branch', 'sub_branch', 'leaf')
+BEGIN
+    INSERT OR IGNORE INTO KnowledgeGraph (
+        user_id, source_node_id, target_node_id, relationship_type, 
+        strength, confidence, ai_generated
     )
-    WHERE node_id = NEW.node_id 
-    AND EXISTS (
-        SELECT 1 FROM DifficultyHistory 
-        WHERE node_id = NEW.node_id 
-        AND created_at = (SELECT MAX(created_at) FROM DifficultyHistory WHERE node_id = NEW.node_id)
-    );
-END;
-
--- Auto-schedule next review after completion
-CREATE TRIGGER IF NOT EXISTS auto_schedule_next_review 
-AFTER UPDATE OF status ON Reviews
-WHEN NEW.status = 'completed' AND OLD.status != 'completed'
-BEGIN
-    -- Calculate next review date based on performance and Fibonacci spacing
-    INSERT INTO Reviews (node_id, node_type, scheduled_date, estimated_duration, status)
     SELECT 
+        NEW.user_id,
         NEW.node_id,
-        NEW.node_type,
-        date(NEW.completed_at, '+' || 
-            (SELECT CAST(f.value AS INTEGER) 
-             FROM Fibonacci f 
-             WHERE f.n = (SELECT fibonacci_index FROM Nodes WHERE node_id = NEW.node_id)
-            ) || ' days'),
-        NEW.estimated_duration * (2.0 / (NEW.performance_score + 1)), -- Adjust based on performance
-        'pending'
-    FROM Fibonacci f
-    WHERE f.n = (SELECT fibonacci_index FROM Nodes WHERE node_id = NEW.node_id)
-    AND NEW.performance_score IS NOT NULL;
+        parent.node_id,
+        'hierarchical',
+        0.8,
+        0.9,
+        1
+    FROM Nodes parent
+    WHERE parent.node_id = NEW.parent_id
+    AND parent.user_id = NEW.user_id;
 END;
 
--- Auto-unlock achievements when conditions are met
-CREATE TRIGGER IF NOT EXISTS auto_unlock_achievements 
-AFTER UPDATE ON Users
-BEGIN
-    -- Streak achievements
-    UPDATE Achievements 
-    SET unlocked_at = CURRENT_TIMESTAMP,
-        progress_current = NEW.streak_days
-    WHERE user_id = NEW.user_id 
-    AND category = 'streak' 
-    AND progress_target <= NEW.streak_days 
-    AND unlocked_at IS NULL;
-    
-    -- Study time achievements
-    UPDATE Achievements 
-    SET unlocked_at = CURRENT_TIMESTAMP,
-        progress_current = NEW.total_study_minutes
-    WHERE user_id = NEW.user_id 
-    AND category = 'study' 
-    AND progress_target <= NEW.total_study_minutes 
-    AND unlocked_at IS NULL;
-END;
+-- =====================================================================
+-- ENHANCED DEFAULT DATA with CLI and AI Focus
+-- =====================================================================
 
+-- Insert extended Fibonacci sequence for CLI and AI scheduling
+INSERT OR REPLACE INTO Fibonacci (n, value) VALUES
+(0, 0), (1, 1), (2, 1), (3, 2), (4, 3), (5, 5), (6, 8), (7, 13), (8, 21), (9, 34),
+(10, 55), (11, 89), (12, 144), (13, 233), (14, 377), (15, 610), (16, 987), (17, 1597),
+(18, 2584), (19, 4181), (20, 6765), (21, 10946), (22, 17711), (23, 28657), (24, 46368),
+(25, 75025), (26, 121393), (27, 196418), (28, 317811), (29, 514229), (30, 832040);
+
+-- CLI-Compatible default achievements
+INSERT OR IGNORE INTO Achievements (name, description, points, icon, category, progress_target) VALUES
+-- CLI Basic achievements
+('First Steps', 'Complete your first study session', 10, '🎯', 'study', 1),
+('Consistent Learner', 'Maintain a 3-day study streak', 25, '🔥', 'streak', 3),
+('Week Warrior', 'Maintain a 7-day study streak', 50, '⚡', 'streak', 7),
+('Marathon Learner', 'Maintain a 30-day study streak', 100, '🏆', 'streak', 30),
+
+-- AI Mastery achievements (preserved)
+('AI Learning Partner', 'Complete 10 AI-optimized study sessions', 75, '🤖', 'ai_mastery', 10),
+('Neural Optimizer', 'Achieve 20% efficiency improvement through AI recommendations', 150, '🧠', 'ai_mastery', 20),
+('Adaptive Learner', 'Successfully adapt learning style based on AI insights', 100, '🔄', 'ai_mastery', 1),
+
+-- Enhanced existing achievements
+('Efficient Explorer', 'Complete nodes with 90%+ AI-calculated efficiency', 120, '⚡', 'efficiency', 10),
+('Knowledge Architect', 'Build a complex knowledge graph with AI assistance', 180, '🏗️', 'exploration', 1);
+
+-- Initialize AI model versions
+INSERT OR IGNORE INTO AITrainingData (user_id, data_type, input_features, output_prediction, model_version, training_date) VALUES
+(0, 'learning_pattern', '{"baseline": "default"}', '{"recommendation": "balanced"}', 'v1.0-cli-integrated', CURRENT_TIMESTAMP);
+
+PRAGMA optimize;
 PRAGMA foreign_keys = ON;

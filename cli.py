@@ -904,11 +904,17 @@ def whoami():
 @click.option("--pause", is_flag=True, help="Pause current study session")
 @click.option("--resume", is_flag=True, help="Resume paused study session")
 @click.option("--complete", is_flag=True, help="Complete current study session")
-@click.option("--node-id", type=int, help="Specific node to study")
+@click.option("--node-id", type=int, help="Specific node to study (overrides auto-selection)")
 @click.option("--focus-mode", is_flag=True, help="Enable focus mode (no breaks)")
 @click.option("--adaptive", is_flag=True, help="Use adaptive scheduling")
-def study(duration, auto_duration, fatigue, focus, pause, resume, complete, node_id, focus_mode, adaptive):
-    """Enhanced study command with gamification, auto-streaker, and fatigue management"""
+@click.option("--force-review", is_flag=True, help="Force review mode for overdue items")
+@click.option("--force-new", is_flag=True, help="Force new content (skip reviews)")
+@click.option("--review-only", is_flag=True, help="Only study items due for review")
+@click.option("--new-only", is_flag=True, help="Only study new items (skip reviews)")
+@click.option("--show-path", is_flag=True, help="Show full learning path with suggested sequence")
+def study(duration, auto_duration, fatigue, focus, pause, resume, complete, node_id, 
+          focus_mode, adaptive, force_review, force_new, review_only, new_only, show_path):
+    """Enhanced study command with intelligent content selection and comprehensive context"""
     user_id = require_user()
     conn = get_db_connection()
     
@@ -929,7 +935,7 @@ def study(duration, auto_duration, fatigue, focus, pause, resume, complete, node
             return
             
         if complete and active_session:
-            _complete_study_session(active_session['session_id'], fatigue, focus, conn, study_manager)
+            _complete_study_session(active_session['session_id'], conn, study_manager)
             
             # Auto-streaker update
             if study_manager.auto_streak_update(user_id):
@@ -945,80 +951,1131 @@ def study(duration, auto_duration, fatigue, focus, pause, resume, complete, node
             console.print(f"[blue]📚 Active study session running for {elapsed:.1f} minutes[/blue]")
             return
 
-        # Get or calculate duration
-        if auto_duration or duration is None:
-            cursor = conn.cursor()
-            if node_id:
-                # Use specified node for auto-duration
-                duration = study_manager.calculate_auto_duration(node_id, user_id)
-            else:
-                # Get highest priority node
-                cursor.execute("""
-                    SELECT node_id FROM Nodes 
-                    WHERE user_id = ? AND status IN ('active', 'pending', 'review')
-                    ORDER BY priority_score DESC, importance DESC 
-                    LIMIT 1
-                """, (user_id,))
-                node = cursor.fetchone()
-                if node:
-                    duration = study_manager.calculate_auto_duration(node['node_id'], user_id)
-                else:
-                    duration = 30
-            console.print(f"[blue]🤖 Auto-duration: {duration} minutes[/blue]")
-
-        # Check hierarchical restrictions and get available nodes
-        available_nodes = _get_available_nodes(user_id, conn)
-        if not available_nodes:
-            console.print("[yellow]🎉 No nodes available for study! Check prerequisites or create new nodes.[/yellow]")
-            return
-
-        # If specific node requested, verify it's available
-        if node_id:
-            node_available = any(node['node_id'] == node_id for node in available_nodes)
-            if not node_available:
-                prereq_met, unmet = study_manager.check_prerequisites(node_id)
-                if not prereq_met:
-                    console.print(f"[red]❌ Node {node_id} has unmet prerequisites: {unmet}[/red]")
-                    return
-                else:
-                    console.print(f"[yellow]⚠️ Node {node_id} is not available for other reasons[/yellow]")
-                    return
-
-        # Fatigue management
-        if fatigue is None:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT fatigue_end FROM StudySessions 
-                WHERE user_id = ? 
-                ORDER BY start_time DESC LIMIT 1
-            """, (user_id,))
-            recent = cursor.fetchone()
-            fatigue = recent['fatigue_end'] if recent else 20.0
-
-        fatigue_recommendations = study_manager.fatigue_management(user_id, fatigue, duration)
+        # Enhanced intelligent node selection with learning path visualization
+        selected_node = None
+        learning_path = []
         
-        if fatigue_recommendations["break_needed"] and not focus_mode:
-            console.print(f"[yellow]💤 Fatigue alert! Recommended break: {fatigue_recommendations['break_duration']} minutes[/yellow]")
+        if node_id:
+            # Use specified node if provided
+            selected_node = _get_node_by_id(node_id, user_id, conn)
+            if not selected_node:
+                console.print(f"[red]❌ Node ID {node_id} not found or not accessible[/red]")
+                return
+            # Convert to dict and generate learning path
+            selected_node = _row_to_dict(selected_node)
+            learning_path = _generate_optimal_learning_path(user_id, conn, study_manager, target_node=selected_node)
+        else:
+            # Auto-select best node with enhanced path planning
+            selection_result = _select_best_study_node_with_path(
+                user_id, conn, study_manager, 
+                force_review or review_only, 
+                force_new or new_only
+            )
+            if selection_result:
+                selected_node, learning_path = selection_result
+            else:
+                console.print("[yellow]🎉 No study items available! Check prerequisites or create new content.[/yellow]")
+                return
+
+        # Show learning path if requested
+        if show_path and learning_path:
+            _display_comprehensive_learning_path(learning_path, conn)
+            if not Confirm.ask("\nProceed with this learning path?"):
+                console.print("[yellow]Study session cancelled[/yellow]")
+                return
+
+        # Enhanced auto-calculate duration with path consideration
+        final_duration = duration
+        if final_duration is None or auto_duration:
+            try:
+                # Use original function for now - enhanced version would be in study_manager
+                calculated_duration = study_manager.calculate_auto_duration(selected_node['node_id'], user_id)
+                if calculated_duration is not None and calculated_duration > 0:
+                    final_duration = calculated_duration
+                else:
+                    final_duration = 30  # Default fallback
+                    console.print("[yellow]⚠️  Auto-duration calculation failed, using default 30 minutes[/yellow]")
+            except Exception as e:
+                final_duration = 30  # Default fallback
+                console.print(f"[yellow]⚠️  Auto-duration error: {e}, using default 30 minutes[/yellow]")
+            
+            if auto_duration or duration is None:
+                console.print(f"[blue]🤖 Auto-duration: {final_duration} minutes[/blue]")
+
+        # Enhanced prerequisite checking with path context
+        if selected_node['status'] != 'review':
+            prereq_met, unmet_prereqs = study_manager.check_prerequisites(selected_node['node_id'])
+            if not prereq_met:
+                console.print(f"[red]❌ Prerequisites not met for '{selected_node['name']}'[/red]")
+                console.print(f"[yellow]📎 Unmet prerequisites: {unmet_prereqs}[/yellow]")
+                
+                # Try to find alternative node
+                alternative_result = _select_best_study_node_with_path(
+                    user_id, conn, study_manager, 
+                    force_review or review_only, 
+                    force_new or new_only, 
+                    exclude_node=selected_node['node_id']
+                )
+                if alternative_result:
+                    alternative_node, alt_path = alternative_result
+                    console.print(f"[blue]🔄 Switching to alternative: '{alternative_node['name']}'[/blue]")
+                    selected_node = alternative_node
+                    learning_path = alt_path
+                    if final_duration is None or auto_duration:
+                        try:
+                            calculated_duration = study_manager.calculate_auto_duration(selected_node['node_id'], user_id)
+                            if calculated_duration is not None and calculated_duration > 0:
+                                final_duration = calculated_duration
+                            else:
+                                final_duration = 30
+                        except:
+                            final_duration = 30
+                        console.print(f"[blue]🤖 Auto-duration: {final_duration} minutes[/blue]")
+                else:
+                    return
+
+        # Enhanced focus and fatigue estimation with robust error handling
+        current_fatigue = fatigue if fatigue is not None else _get_current_fatigue_enhanced(user_id, conn, learning_path)
+        current_focus = focus if focus is not None else _estimate_current_focus_enhanced(user_id, conn, learning_path)
+        
+        # Ensure we have valid numeric values
+        current_fatigue = _ensure_numeric(current_fatigue, 20.0, 0, 100)
+        current_focus = _ensure_numeric(current_focus, 75.0, 0, 100)
+
+        # Enhanced fatigue management with path consideration
+        fatigue_recommendations = study_manager.fatigue_management(user_id, current_fatigue, final_duration)
+        
+        if fatigue_recommendations and fatigue_recommendations.get("break_needed") and not focus_mode:
+            console.print(f"[yellow]💤 Fatigue alert! Recommended break: {fatigue_recommendations.get('break_duration', 5)} minutes[/yellow]")
             if Confirm.ask("Take a break before studying?"):
-                # Schedule break
-                break_session_id = _schedule_break_session(user_id, fatigue_recommendations["break_duration"], conn)
-                console.print(f"[blue]💤 Break session scheduled for {fatigue_recommendations['break_duration']} minutes[/blue]")
+                _schedule_break_session(user_id, fatigue_recommendations.get("break_duration", 5), conn)
+                console.print(f"[blue]💤 Break session scheduled for {fatigue_recommendations.get('break_duration', 5)} minutes[/blue]")
+                return
             else:
                 console.print("[yellow]Continuing with reduced efficiency...[/yellow]")
+                # Enhanced adaptive duration based on fatigue and path complexity
+                if adaptive:
+                    max_duration = fatigue_recommendations.get("max_recommended_duration", final_duration)
+                    final_duration = min(final_duration, max_duration)
+                    console.print(f"[blue]🔄 Adaptive duration: {final_duration} minutes[/blue]")
 
-        # Start study session
-        session_id = _start_study_session(user_id, duration, fatigue, focus, conn, node_id)
-        console.print(f"[green]📚 Study session started for {duration} minutes[/green]")
+        # Enhanced comprehensive study context with path integration
+        _show_comprehensive_study_context_enhanced(selected_node, final_duration, conn, study_manager, learning_path)
         
-        # Show gamification status
-        _show_study_motivation(user_id, conn)
+        # Enhanced confirmation with path summary
+        if not focus_mode and not Confirm.ask(f"\nStart {final_duration} minute study session with the selected path?"):
+            console.print("[yellow]Study session cancelled[/yellow]")
+            return
+
+        # Start enhanced study session with path tracking
+        session_id = _start_study_session_enhanced(
+            user_id, final_duration, current_fatigue, current_focus, 
+            conn, selected_node['node_id'], learning_path
+        )
+        
+        console.print(f"[green]📚 Study session started for {final_duration} minutes[/green]")
+        
+        # Show enhanced gamification status with path progress
+        _show_study_motivation_enhanced(user_id, conn, learning_path)
 
     except Exception as e:
         console.print(f"[red]❌ Study error: {e}[/red]")
+        import traceback
+        traceback.print_exc()
         raise click.Abort()
     finally:
         conn.close()
 
+# ========== ROBUST UTILITY FUNCTIONS ==========
+
+def _ensure_numeric(value, default, min_val=None, max_val=None):
+    """Ensure a value is numeric and within bounds"""
+    if value is None:
+        return default
+    
+    try:
+        numeric_value = float(value)
+        if min_val is not None and numeric_value < min_val:
+            return min_val
+        if max_val is not None and numeric_value > max_val:
+            return max_val
+        return numeric_value
+    except (TypeError, ValueError):
+        return default
+
+# ========== CORE STUDY FUNCTIONS ==========
+
+def _get_current_fatigue(user_id: int, conn) -> float:
+    """Get user's current fatigue level with robust error handling"""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT fatigue_end FROM StudySessions 
+            WHERE user_id = ? 
+            ORDER BY start_time DESC LIMIT 1
+        """, (user_id,))
+        result = cursor.fetchone()
+        if result and result['fatigue_end'] is not None:
+            return float(result['fatigue_end'])
+        return 20.0  # Default fatigue level
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Fatigue calculation error: {e}, using default 20.0[/yellow]")
+        return 20.0  # Default fatigue level
+
+def _estimate_current_focus(user_id: int, conn) -> float:
+    """Estimate current focus level based on recent activity with robust error handling"""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT focus_score, start_time 
+            FROM StudySessions 
+            WHERE user_id = ? 
+            ORDER BY start_time DESC LIMIT 1
+        """, (user_id,))
+        result = cursor.fetchone()
+        
+        if result and result['focus_score'] is not None:
+            # Use recent focus score if available
+            focus_value = float(result['focus_score']) * 100  # Convert from 0-1 to 0-100 scale
+            return max(20.0, min(95.0, focus_value))  # Ensure within bounds
+        
+        # Default focus estimation based on time of day
+        current_hour = datetime.datetime.now().hour
+        if 6 <= current_hour <= 10:
+            return 85.0  # Morning peak
+        elif 14 <= current_hour <= 17:
+            return 75.0  # Afternoon moderate
+        elif 20 <= current_hour <= 22:
+            return 80.0  # Evening good
+        else:
+            return 70.0  # Other times average
+            
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Focus calculation error: {e}, using default 75.0[/yellow]")
+        return 75.0  # Default focus level
+
+def _get_active_study_session(user_id: int, conn):
+    """Get the currently active study session for user"""
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM StudySessions 
+        WHERE user_id = ? AND status IN ('active', 'paused')
+        ORDER BY start_time DESC LIMIT 1
+    """, (user_id,))
+    return cursor.fetchone()
+
+def _pause_study_session(session_id: int, conn):
+    """Pause a study session"""
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE StudySessions 
+        SET status = 'paused', pause_time = ?
+        WHERE session_id = ?
+    """, (datetime.datetime.now().isoformat(), session_id))
+    conn.commit()
+
+def _resume_study_session(session_id: int, conn):
+    """Resume a paused study session"""
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE StudySessions 
+        SET status = 'active', resume_time = ?
+        WHERE session_id = ?
+    """, (datetime.datetime.now().isoformat(), session_id))
+    conn.commit()
+
+def _get_session_elapsed_time(session_id: int, conn) -> float:
+    """Calculate elapsed time for a session in minutes"""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT start_time, pause_time FROM StudySessions WHERE session_id = ?", (session_id,))
+        session = cursor.fetchone()
+        
+        if not session:
+            return 0.0
+        
+        start_time = datetime.datetime.fromisoformat(session['start_time'])
+        
+        if session['pause_time']:
+            pause_time = datetime.datetime.fromisoformat(session['pause_time'])
+            elapsed = (pause_time - start_time).total_seconds() / 60
+        else:
+            elapsed = (datetime.datetime.now() - start_time).total_seconds() / 60
+        
+        return max(0.0, elapsed)  # Ensure non-negative
+    except Exception:
+        return 0.0
+
+def _schedule_break_session(user_id: int, duration: int, conn):
+    """Schedule a break session"""
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO StudySessions 
+        (user_id, planned_duration, start_time, status, session_type)
+        VALUES (?, ?, ?, 'active', 'break')
+    """, (user_id, duration, datetime.datetime.now().isoformat()))
+    conn.commit()
+
+def _check_daily_goal(user_id: int, conn):
+    """Check if daily study goal is met"""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT SUM(actual_duration) as total_studied
+            FROM StudySessions 
+            WHERE user_id = ? AND date(start_time) = date('now') AND status = 'completed'
+        """, (user_id,))
+        result = cursor.fetchone()
+        
+        total_studied = result['total_studied'] or 0
+        
+        # Assuming daily goal is 60 minutes
+        daily_goal = 60
+        if total_studied >= daily_goal:
+            console.print("[green]🎉 Daily study goal achieved![/green]")
+        else:
+            remaining = daily_goal - total_studied
+            console.print(f"[blue]📊 Daily progress: {total_studied:.0f}/{daily_goal} minutes ({remaining:.0f} remaining)[/blue]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Daily goal check error: {e}[/yellow]")
+
+def _complete_study_session(session_id: int, conn, study_manager):
+    """Complete study session with enhanced analytics"""
+    cursor = conn.cursor()
+    
+    # Get session data
+    cursor.execute("SELECT * FROM StudySessions WHERE session_id = ?", (session_id,))
+    session = cursor.fetchone()
+    
+    if not session:
+        console.print("[red]❌ Session not found[/red]")
+        return
+    
+    # Calculate actual duration
+    start_time = datetime.datetime.fromisoformat(session['start_time'])
+    actual_duration = (datetime.datetime.now() - start_time).total_seconds() / 60
+    
+    # Get current fatigue and focus (you might want to prompt for these or estimate)
+    current_fatigue = _get_current_fatigue(session['user_id'], conn) + 10  # Simple fatigue increase
+    current_focus = max(50, session.get('focus_score', 75) * 100 - 5)  # Simple focus decrease
+    
+    # Calculate efficiency score
+    efficiency_score = min(1.0, actual_duration / session['planned_duration'])
+    
+    # Update session
+    cursor.execute("""
+        UPDATE StudySessions 
+        SET end_time = ?, actual_duration = ?, fatigue_end = ?, focus_score = ?, 
+            efficiency_score = ?, status = 'completed'
+        WHERE session_id = ?
+    """, (datetime.datetime.now().isoformat(), actual_duration, current_fatigue, 
+          current_focus / 100, efficiency_score, session_id))
+    
+    # Record analytics
+    cursor.execute("""
+        INSERT INTO StudyAnalytics (user_id, session_id, duration_minutes, focus_score, efficiency_score)
+        VALUES (?, ?, ?, ?, ?)
+    """, (session['user_id'], session_id, actual_duration, current_focus / 100, efficiency_score))
+    
+    # Award points
+    gamification = GamificationEngine(conn)
+    points_earned = gamification.award_session_points(session['user_id'], {
+        'duration_minutes': actual_duration,
+        'efficiency_score': efficiency_score,
+        'focus_score': current_focus / 100
+    })
+    
+    # Update learning efficiency
+    new_efficiency = study_manager.update_learning_efficiency(session['user_id'], efficiency_score)
+    
+    conn.commit()
+    
+    console.print(f"[green]✅ Study session completed![/green]")
+    console.print(f"[blue]📊 Duration: {actual_duration:.1f} min, Focus: {current_focus:.0f}%, Efficiency: {efficiency_score:.2f}[/blue]")
+    console.print(f"[green]🎯 Points earned: +{points_earned}[/green]")
+    if new_efficiency:
+        console.print(f"[blue]📈 Learning efficiency: {new_efficiency:.2f}x[/blue]")
+
+# ========== UTILITY FUNCTIONS ==========
+
+def _row_to_dict(row):
+    """Convert sqlite3.Row to dictionary"""
+    if row is None:
+        return None
+    return dict(row)
+
+def _rows_to_dicts(rows):
+    """Convert list of sqlite3.Row to list of dictionaries"""
+    if rows is None:
+        return []
+    return [dict(row) for row in rows]
+
+def _get_node_by_id(node_id: int, user_id: int, conn):
+    """Get a specific node by ID if accessible to user"""
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT n.* FROM Nodes n
+        WHERE n.node_id = ? AND n.user_id = ?
+    """, (node_id, user_id))
+    return cursor.fetchone()
+
+# ========== ENHANCED STUDY FUNCTIONS ==========
+
+def _get_overdue_reviews_enhanced(user_id: int, conn):
+    """Enhanced version of overdue reviews with better prioritization"""
+    cursor = conn.cursor()
+    
+    # Get reviews that are due with enhanced prioritization
+    cursor.execute("""
+        SELECT r.node_id, n.name, n.node_type, n.understanding, n.difficulty,
+               r.scheduled_date, r.estimated_duration,
+               JULIANDAY('now') - JULIANDAY(r.scheduled_date) as days_overdue,
+               n.importance, n.priority_score
+        FROM Reviews r
+        JOIN Nodes n ON r.node_id = n.node_id
+        WHERE n.user_id = ? 
+          AND r.status = 'pending'
+          AND r.scheduled_date <= date('now')
+          AND n.status != 'completed'
+        ORDER BY days_overdue DESC, n.priority_score DESC, n.importance DESC
+        LIMIT 5
+    """, (user_id,))
+    
+    reviews = _rows_to_dicts(cursor.fetchall())
+    if reviews:
+        console.print(f"[blue]📋 Found {len(reviews)} overdue reviews[/blue]")
+        for i, review in enumerate(reviews):
+            console.print(f"  {i+1}. {review['name']} ({review['node_type']}) - {review['days_overdue']:.1f} days overdue")
+    
+    return reviews
+
+def _get_high_priority_uncompleted_enhanced(user_id: int, conn, study_manager, exclude_node=None):
+    """Enhanced version with better filtering and prioritization"""
+    cursor = conn.cursor()
+    
+    query = """
+        SELECT n.node_id, n.node_type, n.name, n.status, n.importance, 
+               n.understanding, n.difficulty, n.priority_score,
+               n.prerequisites, n.parent_id, n.child_order
+        FROM Nodes n
+        WHERE n.user_id = ? 
+          AND n.status IN ('active', 'pending')
+          AND n.node_type != 'ecology'
+    """
+    
+    params = [user_id]
+    
+    if exclude_node:
+        query += " AND n.node_id != ?"
+        params.append(exclude_node)
+    
+    query += """
+        ORDER BY n.priority_score DESC, n.importance DESC, n.understanding ASC
+        LIMIT 10
+    """
+    
+    cursor.execute(query, params)
+    nodes = _rows_to_dicts(cursor.fetchall())
+    
+    # Filter nodes with met prerequisites
+    available_nodes = []
+    for node in nodes:
+        prereq_met, unmet = study_manager.check_prerequisites(node['node_id'])
+        if prereq_met:
+            available_nodes.append(node)
+    
+    if available_nodes:
+        console.print(f"[blue]📋 Found {len(available_nodes)} high-priority uncompleted nodes[/blue]")
+        for i, node in enumerate(available_nodes[:3]):
+            status_icon = _get_status_icon(node['status'])
+            console.print(f"  {i+1}. {status_icon} {node['name']} ({node['node_type']}) - Priority: {node.get('priority_score', 0):.1f}")
+    
+    return available_nodes
+
+def _get_available_nodes_postorder_enhanced(user_id: int, conn, study_manager, exclude_node=None):
+    """Enhanced post-order traversal with better node selection"""
+    cursor = conn.cursor()
+    
+    # Get all available nodes
+    cursor.execute("""
+        SELECT n.node_id, n.node_type, n.name, n.status, n.importance, 
+               n.understanding, n.difficulty, n.priority_score,
+               n.prerequisites, n.parent_id, n.child_order
+        FROM Nodes n
+        WHERE n.user_id = ? 
+          AND n.status IN ('active', 'pending', 'review')
+        ORDER BY n.child_order ASC
+    """, (user_id,))
+    
+    all_nodes = _rows_to_dicts(cursor.fetchall())
+    
+    # Build tree structure
+    node_dict = {node['node_id']: node for node in all_nodes}
+    children_dict = {}
+    
+    for node in all_nodes:
+        parent_id = node['parent_id']
+        if parent_id not in children_dict:
+            children_dict[parent_id] = []
+        children_dict[parent_id].append(node)
+    
+    # Enhanced post-order traversal (children first, then parents)
+    visited = set()
+    postorder_nodes = []
+    
+    def enhanced_postorder_traverse(node_id):
+        if node_id in visited:
+            return
+        visited.add(node_id)
+        
+        # Process children in order first (1st child, 2nd child...)
+        children = sorted(children_dict.get(node_id, []), key=lambda x: x.get('child_order', 0))
+        for child in children:
+            enhanced_postorder_traverse(child['node_id'])
+        
+        # Then process current node (if it's not excluded and available)
+        if node_id in node_dict:
+            node = node_dict[node_id]
+            if exclude_node and node['node_id'] == exclude_node:
+                return
+                
+            prereq_met, _ = study_manager.check_prerequisites(node_id)
+            if prereq_met and node['status'] in ['active', 'pending', 'review']:
+                postorder_nodes.append(node)
+    
+    # Start from root nodes (ecologies)
+    root_nodes = [node for node in all_nodes if node['node_type'] == 'ecology']
+    for root in root_nodes:
+        enhanced_postorder_traverse(root['node_id'])
+    
+    if postorder_nodes:
+        console.print(f"[blue]📋 Found {len(postorder_nodes)} available nodes using enhanced post-order traversal[/blue]")
+        for i, node in enumerate(postorder_nodes[:3]):
+            status_icon = _get_status_icon(node['status'])
+            console.print(f"  {i+1}. {status_icon} {node['name']} ({node['node_type']}) - Order: {node.get('child_order', 0)}")
+    
+    return postorder_nodes
+
+def _select_best_study_node_with_path(user_id: int, conn, study_manager, force_review=False, force_new=False, exclude_node=None):
+    """Intelligently select the best node to study with optimal learning path"""
+    
+    # Priority 1: Overdue reviews (unless forced to skip)
+    overdue_reviews = []
+    if not force_new:
+        overdue_reviews = _get_overdue_reviews_enhanced(user_id, conn)
+        if overdue_reviews and (force_review or not force_new):
+            console.print("[yellow]🔔 Overdue reviews detected - prioritizing review[/yellow]")
+            review_node = overdue_reviews[0]
+            review_path = _generate_optimal_learning_path(user_id, conn, study_manager, target_node=review_node)
+            return review_node, review_path
+    
+    # If review-only mode, stop here if no reviews
+    if force_review and (not overdue_reviews or len(overdue_reviews) == 0):
+        console.print("[yellow]📝 Review-only mode: No reviews available[/yellow]")
+        return None
+    
+    # Priority 2: Uncompleted nodes with optimal learning path
+    uncompleted_nodes = _get_high_priority_uncompleted_enhanced(user_id, conn, study_manager, exclude_node)
+    if uncompleted_nodes:
+        best_node = uncompleted_nodes[0]
+        best_path = _generate_optimal_learning_path(user_id, conn, study_manager, target_node=best_node)
+        return best_node, best_path
+    
+    # Priority 3: Any available nodes with post-order traversal path
+    available_nodes = _get_available_nodes_postorder_enhanced(user_id, conn, study_manager, exclude_node)
+    if available_nodes:
+        best_node = available_nodes[0]
+        best_path = _generate_optimal_learning_path(user_id, conn, study_manager, target_node=best_node)
+        return best_node, best_path
+    
+    return None
+
+def _generate_optimal_learning_path(user_id: int, conn, study_manager, target_node=None):
+    """Generate optimal learning path using enhanced post-order traversal"""
+    if target_node:
+        # Generate path to specific target node
+        return _generate_path_to_target(user_id, conn, study_manager, target_node)
+    else:
+        # Generate general optimal learning path
+        return _generate_comprehensive_learning_path(user_id, conn, study_manager)
+
+def _generate_path_to_target(user_id: int, conn, study_manager, target_node):
+    """Generate learning path to reach target node using post-order traversal"""
+    cursor = conn.cursor()
+    
+    # Get all prerequisite nodes in post-order
+    path = []
+    visited = set()
+    
+    def collect_prerequisites(node_id):
+        if node_id in visited:
+            return
+        visited.add(node_id)
+        
+        # Get current node
+        cursor.execute("SELECT * FROM Nodes WHERE node_id = ? AND user_id = ?", (node_id, user_id))
+        node_row = cursor.fetchone()
+        if not node_row:
+            return
+        
+        node = _row_to_dict(node_row)
+        
+        # Get children first (post-order: children before parent)
+        cursor.execute("""
+            SELECT node_id FROM Nodes 
+            WHERE parent_id = ? AND user_id = ? 
+            ORDER BY child_order ASC
+        """, (node_id, user_id))
+        
+        children = cursor.fetchall()
+        for child in children:
+            collect_prerequisites(child['node_id'])
+        
+        # Add current node if it meets prerequisites and is studyable
+        if node['node_id'] != target_node['node_id']:
+            prereq_met, _ = study_manager.check_prerequisites(node['node_id'])
+            if prereq_met and node['status'] in ['active', 'pending', 'review']:
+                path.append(node)
+    
+    # Start from target node's prerequisites
+    if target_node.get('prerequisites'):
+        try:
+            prereq_ids = json.loads(target_node['prerequisites'])
+            for prereq_id in prereq_ids:
+                collect_prerequisites(prereq_id)
+        except:
+            pass
+    
+    # Add target node at the end
+    path.append(target_node)
+    
+    return path
+
+def _generate_comprehensive_learning_path(user_id: int, conn, study_manager):
+    """Generate comprehensive learning path using enhanced post-order traversal"""
+    cursor = conn.cursor()
+    
+    # Get all studyable nodes
+    cursor.execute("""
+        SELECT n.node_id, n.node_type, n.name, n.status, n.importance, 
+               n.understanding, n.difficulty, n.priority_score,
+               n.prerequisites, n.parent_id, n.child_order
+        FROM Nodes n
+        WHERE n.user_id = ? 
+          AND n.status IN ('active', 'pending', 'review')
+        ORDER BY n.child_order ASC
+    """, (user_id,))
+    
+    all_nodes = _rows_to_dicts(cursor.fetchall())
+    
+    # Build enhanced tree structure
+    node_dict = {node['node_id']: node for node in all_nodes}
+    children_dict = {}
+    
+    for node in all_nodes:
+        parent_id = node['parent_id']
+        if parent_id not in children_dict:
+            children_dict[parent_id] = []
+        children_dict[parent_id].append(node)
+    
+    # Enhanced post-order traversal with prerequisite checking
+    visited = set()
+    learning_path = []
+    
+    def enhanced_postorder_traverse(node_id, depth=0):
+        if node_id in visited:
+            return
+        visited.add(node_id)
+        
+        # Process children in order first (1st child, 2nd child... then parent)
+        children = sorted(children_dict.get(node_id, []), key=lambda x: x.get('child_order', 0))
+        for child in children:
+            enhanced_postorder_traverse(child['node_id'], depth + 1)
+        
+        # Then process current node if studyable
+        if node_id in node_dict:
+            node = node_dict[node_id]
+            prereq_met, _ = study_manager.check_prerequisites(node_id)
+            
+            if prereq_met and node['status'] in ['active', 'pending', 'review']:
+                # Add integration nodes for parents after processing all children
+                if children and node['node_type'] in ['branch', 'sub_branch', 'super_branch', 'tree', 'forest']:
+                    integration_node = {
+                        **node,
+                        'is_integration_session': True,
+                        'integration_children': [child['node_id'] for child in children]
+                    }
+                    learning_path.append(integration_node)
+                else:
+                    learning_path.append(node)
+    
+    # Start from root nodes (ecologies)
+    root_nodes = [node for node in all_nodes if node['node_type'] == 'ecology']
+    for root in root_nodes:
+        enhanced_postorder_traverse(root['node_id'])
+    
+    return learning_path
+
+def _display_comprehensive_learning_path(learning_path, conn):
+    """Display comprehensive learning path with enhanced visualization"""
+    console.print("\n" + "="*70)
+    console.print("🧭 [bold]COMPREHENSIVE LEARNING PATH[/bold]")
+    console.print("="*70)
+    
+    for i, node in enumerate(learning_path):
+        node_type_icon = _get_node_type_icon(node['node_type'])
+        status_icon = _get_status_icon(node['status'])
+        
+        # Enhanced node description
+        if node.get('is_integration_session'):
+            console.print(f"\n{i+1}. 🔗 [bold cyan]INTEGRATION SESSION[/bold cyan]")
+            console.print(f"   📚 [bold]Integrating {len(node['integration_children'])} concepts from '{node['name']}'[/bold]")
+            console.print(f"   🎯 Focus: Connecting relationships and patterns between learned concepts")
+        else:
+            # Standard study session
+            study_type, study_desc = _get_study_type_description(node, conn)
+            console.print(f"\n{i+1}. {node_type_icon} [bold]{study_type}[/bold]")
+            console.print(f"   📖 [bold]{node['name']}[/bold] ({node['node_type'].replace('_', ' ').title()})")
+            console.print(f"   🎯 {study_desc}")
+        
+        # Show metrics
+        metrics_line = f"   📊 Understanding: {node.get('understanding', 0):.0f}% | "
+        metrics_line += f"Difficulty: {node.get('difficulty', 0):.0f} | "
+        metrics_line += f"Priority: {node.get('priority_score', 0):.1f}"
+        console.print(metrics_line)
+        
+        # Show status and order
+        console.print(f"   {status_icon} Status: {node.get('status', 'unknown').title()} | Order: {node.get('child_order', 0)}")
+    
+    console.print("="*70)
+    console.print("[italic]Path follows: 1st child → 2nd child → ... → Parent (Integration) → Next Parent[/italic]")
+
+def _get_node_type_icon(node_type):
+    """Get appropriate icon for node type"""
+    icons = {
+        'ecology': '🌍',
+        'forest': '🌲',
+        'tree': '🌳',
+        'super_branch': '🟢',
+        'branch': '🟡',
+        'sub_branch': '🟠',
+        'leaf': '🍃'
+    }
+    return icons.get(node_type, '📄')
+
+def _get_status_icon(status):
+    """Get appropriate icon for status"""
+    icons = {
+        'pending': '⏳',
+        'active': '🔥', 
+        'review': '🔄',
+        'completed': '✅'
+    }
+    return icons.get(status, '○')
+
+def _get_current_fatigue_enhanced(user_id: int, conn, learning_path) -> float:
+    """Enhanced fatigue estimation considering path complexity"""
+    base_fatigue = _get_current_fatigue(user_id, conn)
+    
+    # Ensure base_fatigue is numeric
+    base_fatigue = _ensure_numeric(base_fatigue, 20.0, 0, 100)
+    
+    # Adjust fatigue based on learning path complexity
+    if learning_path:
+        path_difficulty = sum(_ensure_numeric(node.get('difficulty', 0), 50, 0, 100) for node in learning_path[:5]) / min(5, len(learning_path))
+        complexity_factor = path_difficulty / 100.0  # 0.0 to 1.0
+        
+        # Increase fatigue estimate for complex paths
+        fatigue_adjustment = complexity_factor * 20  # Up to 20 points increase
+        return min(100.0, base_fatigue + fatigue_adjustment)
+    
+    return base_fatigue
+
+def _estimate_current_focus_enhanced(user_id: int, conn, learning_path) -> float:
+    """Enhanced focus estimation considering path requirements"""
+    base_focus = _estimate_current_focus(user_id, conn)
+    
+    # Ensure base_focus is numeric
+    base_focus = _ensure_numeric(base_focus, 75.0, 0, 100)
+    
+    # Adjust focus based on path requirements
+    if learning_path:
+        # Calculate average difficulty of next few nodes
+        upcoming_difficulty = sum(_ensure_numeric(node.get('difficulty', 0), 50, 0, 100) for node in learning_path[:3]) / min(3, len(learning_path))
+        
+        # Higher difficulty requires more focus
+        if upcoming_difficulty > 70:
+            focus_boost = 5  # Need extra focus for difficult content
+        elif upcoming_difficulty < 40:
+            focus_boost = -5  # Can relax slightly for easier content
+        else:
+            focus_boost = 0
+            
+        return max(20.0, min(95.0, base_focus + focus_boost))
+    
+    return base_focus
+
+def _start_study_session_enhanced(user_id, duration, fatigue, focus, conn, node_id, learning_path):
+    """Start enhanced study session with path tracking"""
+    cursor = conn.cursor()
+    
+    # Store learning path in session
+    path_data = json.dumps([node['node_id'] for node in learning_path])
+    
+    cursor.execute("""
+        INSERT INTO StudySessions 
+        (user_id, planned_duration, fatigue_start, focus_score, start_time, status, current_node_id, learning_path)
+        VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+    """, (user_id, duration, fatigue, focus / 100, datetime.datetime.now().isoformat(), node_id, path_data))
+    
+    session_id = cursor.lastrowid
+    conn.commit()
+    
+    return session_id
+
+def _show_study_motivation_enhanced(user_id, conn, learning_path):
+    """Show enhanced gamification status with path context"""
+    # Basic motivation (use original function)
+    _show_study_motivation(user_id, conn)
+    
+    # Enhanced path-based motivation
+    if learning_path:
+        total_nodes = len(learning_path)
+        completed_nodes = sum(1 for node in learning_path if node.get('status') == 'completed')
+        
+        if completed_nodes > 0:
+            completion_ratio = completed_nodes / total_nodes
+            if completion_ratio > 0.7:
+                console.print("[green]🚀 Great progress! You're mastering this path![/green]")
+            elif completion_ratio > 0.4:
+                console.print("[yellow]📈 Good momentum! Keep building your understanding.[/yellow]")
+            else:
+                console.print("[blue]🌱 Starting strong! Each step builds your knowledge foundation.[/blue]")
+
+# ========== COMPREHENSIVE STUDY CONTEXT FUNCTIONS ==========
+
+def _show_comprehensive_study_context_enhanced(node, duration, conn, study_manager, learning_path):
+    """Enhanced study context with path integration"""
+    cursor = conn.cursor()
+    
+    # Get the full hierarchy path
+    hierarchy_path = _get_node_hierarchy_path(node['node_id'], conn)
+    
+    # Determine study type and description
+    study_type, study_description = _get_study_type_description(node, conn)
+    
+    # Show main study header
+    console.print("\n" + "="*60)
+    console.print(f"📚 [bold]STUDY SESSION: {study_type}[/bold]")
+    console.print("="*60)
+    
+    # Show hierarchy path
+    path_text = " → ".join([f"{n['name']} ({n['node_type']})" for n in hierarchy_path])
+    console.print(f"📍 [bold]Path:[/bold] {path_text}")
+    
+    # Show position in learning path
+    if learning_path:
+        current_position = next((i for i, n in enumerate(learning_path) if n['node_id'] == node['node_id']), -1)
+        if current_position >= 0:
+            console.print(f"📈 [bold]Progress in Path:[/bold] {current_position + 1}/{len(learning_path)}")
+    
+    # Enhanced study description
+    console.print(f"🎯 [bold]Focus:[/bold] {study_description}")
+    
+    # Enhanced duration information
+    console.print(f"⏱️ [bold]Duration:[/bold] {duration} minutes (path-optimized)")
+    
+    # Enhanced node metrics
+    _show_node_metrics_enhanced(node, conn)
+    
+    # Enhanced progress context
+    _show_progress_context_enhanced(node, conn, learning_path)
+    
+    # Enhanced study recommendations with path context
+    _show_study_recommendations_enhanced(node, study_manager, learning_path)
+    
+    console.print("="*60)
+
+def _get_node_hierarchy_path(node_id, conn):
+    """Get the full hierarchy path from ecology to current node"""
+    cursor = conn.cursor()
+    path = []
+    current_id = node_id
+    
+    while current_id:
+        cursor.execute("SELECT node_id, node_type, name, parent_id FROM Nodes WHERE node_id = ?", (current_id,))
+        node = cursor.fetchone()
+        if node:
+            path.insert(0, _row_to_dict(node))  # Add to beginning to maintain order
+            current_id = node['parent_id']
+        else:
+            break
+    
+    return path
+
+def _get_study_type_description(node, conn):
+    """Determine the study type and create description"""
+    cursor = conn.cursor()
+    
+    # Check if this is a review
+    cursor.execute("""
+        SELECT review_id, scheduled_date 
+        FROM Reviews 
+        WHERE node_id = ? AND status = 'pending' AND scheduled_date <= date('now')
+        LIMIT 1
+    """, (node['node_id'],))
+    
+    review = cursor.fetchone()
+    
+    node_type = node['node_type'].replace('_', ' ').title()
+    
+    if review:
+        return "REVIEW", f"Reviewing {node_type.lower()} '{node['name']}'"
+    
+    # Determine integration level based on node type
+    if node['node_type'] == 'leaf':
+        return "STUDY LEAF", f"Learning '{node['name']}'"
+    
+    elif node['node_type'] == 'sub_branch':
+        cursor.execute("SELECT COUNT(*) as leaf_count FROM Nodes WHERE parent_id = ? AND node_type = 'leaf'", (node['node_id'],))
+        leaf_count = cursor.fetchone()['leaf_count']
+        return "STUDY SUB-BRANCH", f"Integrating {leaf_count} leaves under '{node['name']}'"
+    
+    elif node['node_type'] == 'branch':
+        cursor.execute("""
+            SELECT COUNT(DISTINCT n2.node_id) as total_descendants 
+            FROM Nodes n1
+            LEFT JOIN Nodes n2 ON n2.parent_id = n1.node_id OR n2.parent_id IN (
+                SELECT node_id FROM Nodes WHERE parent_id = n1.node_id
+            )
+            WHERE n1.parent_id = ?
+        """, (node['node_id'],))
+        total_descendants = cursor.fetchone()['total_descendants'] or 0
+        return "STUDY BRANCH", f"Integrating sub-branches and {total_descendants} total items under '{node['name']}'"
+    
+    elif node['node_type'] == 'super_branch':
+        cursor.execute("""
+            SELECT COUNT(DISTINCT n2.node_id) as total_descendants 
+            FROM Nodes n1
+            LEFT JOIN Nodes n2 ON n2.parent_id = n1.node_id OR n2.parent_id IN (
+                SELECT node_id FROM Nodes WHERE parent_id = n1.node_id
+            )
+            WHERE n1.parent_id = ?
+        """, (node['node_id'],))
+        total_descendants = cursor.fetchone()['total_descendants'] or 0
+        return "STUDY super_branch-BRANCH", f"High-level integration of {total_descendants} items under '{node['name']}'"
+    
+    elif node['node_type'] == 'tree':
+        cursor.execute("SELECT COUNT(*) as total_descendants FROM Nodes WHERE parent_id = ?", (node['node_id'],))
+        total_descendants = cursor.fetchone()['total_descendants']
+        return "STUDY TREE", f"Comprehensive integration of {total_descendants} items in '{node['name']}'"
+    
+    elif node['node_type'] == 'forest':
+        cursor.execute("""
+            SELECT COUNT(DISTINCT n2.node_id) as total_descendants 
+            FROM Nodes n1
+            LEFT JOIN Nodes n2 ON n2.parent_id = n1.node_id OR n2.parent_id IN (
+                SELECT node_id FROM Nodes WHERE parent_id = n1.node_id
+            )
+            WHERE n1.parent_id = ?
+        """, (node['node_id'],))
+        total_descendants = cursor.fetchone()['total_descendants'] or 0
+        return "STUDY FOREST", f"Broad integration of {total_descendants} items in '{node['name']}'"
+    
+    elif node['node_type'] == 'ecology':
+        cursor.execute("""
+            SELECT COUNT(*) as total_nodes 
+            FROM Nodes 
+            WHERE user_id = ? AND node_type != 'ecology'
+        """, (node['user_id'],))
+        total_nodes = cursor.fetchone()['total_nodes']
+        return "STUDY ECOLOGY", f"Master integration of {total_nodes} items in '{node['name']}'"
+    
+    return "STUDY", f"Working on '{node['name']}'"
+
+def _show_node_metrics_enhanced(node, conn):
+    """Show enhanced node metrics with contextual insights"""
+    metrics_table = Table(show_header=False, box=None)
+    metrics_table.add_column("Metric", style="cyan")
+    metrics_table.add_column("Value", style="white")
+    metrics_table.add_column("", style="cyan")
+    metrics_table.add_column("Value", style="white")
+    
+    # Enhanced understanding with contextual advice
+    understanding = node.get('understanding', 0)
+    if understanding > 80:
+        understanding_color = "green"
+        understanding_icon = "🟢"
+        understanding_note = "Mastery"
+    elif understanding > 60:
+        understanding_color = "yellow"
+        understanding_icon = "🟡"
+        understanding_note = "Proficient"
+    else:
+        understanding_color = "red"
+        understanding_icon = "🔴"
+        understanding_note = "Learning"
+    
+    # Enhanced difficulty with workload estimation
+    difficulty = node.get('difficulty', 0)
+    if difficulty > 70:
+        difficulty_color = "red"
+        difficulty_icon = "🔴"
+        difficulty_note = "Heavy"
+    elif difficulty > 50:
+        difficulty_color = "yellow"
+        difficulty_icon = "🟡"
+        difficulty_note = "Moderate"
+    else:
+        difficulty_color = "green"
+        difficulty_icon = "🟢"
+        difficulty_note = "Light"
+    
+    # Enhanced importance with priority context
+    importance = node.get('importance', 0)
+    if importance > 80:
+        importance_color = "red"
+        importance_icon = "🔥"
+        importance_note = "Critical"
+    elif importance > 60:
+        importance_color = "yellow"
+        importance_icon = "⭐"
+        importance_note = "High"
+    else:
+        importance_color = "green"
+        importance_icon = "📌"
+        importance_note = "Standard"
+    
+    metrics_table.add_row(
+        f"{understanding_icon} Understanding", f"[{understanding_color}]{understanding:.0f}% ({understanding_note})[/{understanding_color}]",
+        f"{difficulty_icon} Difficulty", f"[{difficulty_color}]{difficulty:.0f} ({difficulty_note})[/{difficulty_color}]"
+    )
+    
+    metrics_table.add_row(
+        f"{importance_icon} Importance", f"[{importance_color}]{importance:.0f} ({importance_note})[/{importance_color}]",
+        "📊 Priority Score", f"{node.get('priority_score', 0):.1f}" if node.get('priority_score') else "N/A"
+    )
+    
+    # Enhanced status with next steps
+    status_icon = _get_status_icon(node.get('status', 'pending'))
+    next_action = _get_next_action_for_status(node.get('status', 'pending'))
+    metrics_table.add_row("📝 Status", f"{status_icon} {node.get('status', 'pending').title()}", "🎯 Next", next_action)
+    
+    console.print(metrics_table)
+
+def _get_next_action_for_status(status):
+    """Get recommended next action based on status"""
+    actions = {
+        'pending': 'Initial Learning',
+        'active': 'Continue Practice',
+        'review': 'Reinforce Memory',
+        'completed': 'Maintain Mastery'
+    }
+    return actions.get(status, 'Study')
+
+def _show_progress_context_enhanced(node, conn, learning_path):
+    """Show enhanced progress context with path awareness"""
+    cursor = conn.cursor()
+    
+    if node['node_type'] in ['ecology', 'forest', 'tree', 'super_branch', 'branch', 'sub_branch']:
+        # Enhanced completion stats with path context
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_children,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_children,
+                AVG(understanding) as avg_understanding,
+                AVG(difficulty) as avg_difficulty
+            FROM Nodes 
+            WHERE parent_id = ?
+        """, (node['node_id'],))
+        
+        stats = cursor.fetchone()
+        if stats and stats['total_children'] > 0:
+            completion_pct = (stats['completed_children'] / stats['total_children']) * 100
+            console.print(f"📊 [bold]Branch Progress:[/bold] {stats['completed_children']}/{stats['total_children']} completed ({completion_pct:.1f}%)")
+            console.print(f"🎯 [bold]Avg Understanding:[/bold] {stats['avg_understanding']:.1f}% | [bold]Avg Difficulty:[/bold] {stats['avg_difficulty']:.1f}")
+    
+    # Show learning path statistics if available
+    if learning_path:
+        completed_in_path = sum(1 for n in learning_path if n.get('status') == 'completed')
+        total_in_path = len(learning_path)
+        path_completion = (completed_in_path / total_in_path) * 100 if total_in_path > 0 else 0
+        
+        console.print(f"🧭 [bold]Path Progress:[/bold] {completed_in_path}/{total_in_path} nodes completed ({path_completion:.1f}%)")
+
+def _show_study_recommendations_enhanced(node, study_manager, learning_path):
+    """Show enhanced study recommendations with path awareness"""
+    recommendations = []
+    
+    # Enhanced understanding-based recommendations
+    understanding = node.get('understanding', 0)
+    if understanding < 30:
+        recommendations.append("🔴 **Foundation Building** - Focus intensely on core concepts and fundamentals")
+    elif understanding < 60:
+        recommendations.append("🟡 **Skill Development** - Practice applications with gradual complexity increase")
+    elif understanding < 85:
+        recommendations.append("🟢 **Proficiency Building** - Work on speed, accuracy, and variations")
+    else:
+        recommendations.append("💎 **Mastery & Integration** - Connect with related concepts and teach-back exercises")
+    
+    # Enhanced difficulty-based recommendations
+    difficulty = node.get('difficulty', 0)
+    if difficulty > 80:
+        recommendations.append("💡 **Chunking Strategy** - Break into 15-20 minute focused segments with micro-breaks")
+    elif difficulty > 60:
+        recommendations.append("⚡ **Structured Practice** - Use pomodoro technique with 25-min focused blocks")
+    elif difficulty < 30:
+        recommendations.append("🚀 **Rapid Reinforcement** - Good for quick review and confidence building")
+    
+    # Enhanced path-based recommendations
+    if learning_path and any(n.get('is_integration_session') for n in learning_path):
+        recommendations.append("🔗 **Integration Focus** - Pay special attention to connections between concepts")
+    
+    # Node type specific enhanced recommendations
+    node_type = node.get('node_type', 'leaf')
+    if node_type in ['ecology', 'forest', 'tree']:
+        recommendations.append("🌐 **Big Picture Thinking** - Create mental maps and identify cross-connections")
+    elif node_type in ['super_branch', 'branch', 'sub_branch']:
+        recommendations.append("🔗 **Pattern Recognition** - Look for recurring patterns and relationships")
+    elif node_type == 'leaf':
+        recommendations.append("📚 **Deep Focus** - Eliminate distractions for maximum concentration")
+    
+    if recommendations:
+        console.print("\n💡 [bold]Enhanced Study Recommendations:[/bold]")
+        for rec in recommendations:
+            console.print(f"   • {rec}")
+
+# ========== ORIGINAL COMPATIBILITY FUNCTIONS ==========
+
+def _show_study_motivation(user_id, conn):
+    """Show basic study motivation (original function)"""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT streak_count, total_points, level 
+            FROM UserStats 
+            WHERE user_id = ?
+        """, (user_id,))
+        stats = cursor.fetchone()
+        
+        if stats:
+            streak = stats['streak_count'] or 0
+            points = stats['total_points'] or 0
+            level = stats['level'] or 1
+            
+            console.print(f"[blue]🔥 Current Streak: {streak} days | ⭐ Points: {points} | 🎯 Level: {level}[/blue]")
+        else:
+            console.print("[blue]🎯 Start your learning journey![/blue]")
+    except:
+        console.print("[blue]🎯 Ready to learn![/blue]")
+
+# Status icons for reference
+status_icons = {
+    'pending': '⏳',
+    'active': '🔥',
+    'review': '🔄', 
+    'completed': '✅'
+}
 # =====================================================================
 # GAMIFICATION & ACHIEVEMENTS COMMANDS
 # =====================================================================
@@ -1447,12 +2504,11 @@ def create_ecology_cmd(name, description, course, course_code, importance):
 def create_forest_cmd(ecology_id, name, description, course, course_code, importance):
     """Create a new forest under an ecology"""
     uid = require_user()
-    
-    if ecology_id is None:
-        ecology_id = _prompt_for_parent_id("ecology", uid)
-    
     conn = get_db_connection()
     
+    if ecology_id is None:
+        ecology_id = _prompt_for_parent_id("ecology", uid, conn)
+        
     try:
         if not (1 <= importance <= 100):
             raise ValueError("Importance must be between 1 and 100")
@@ -1502,11 +2558,10 @@ def create_forest_cmd(ecology_id, name, description, course, course_code, import
 def create_tree_cmd(forest_id, name, description, course, course_code, importance):
     """Create a new tree under a forest"""
     uid = require_user()
-    
-    if forest_id is None:
-        forest_id = _prompt_for_parent_id("forest", uid)
-    
     conn = get_db_connection()
+    if forest_id is None:
+        forest_id = _prompt_for_parent_id("forest", uid, conn)
+        
     
     try:
         if not (1 <= importance <= 100):
@@ -1547,21 +2602,20 @@ def create_tree_cmd(forest_id, name, description, course, course_code, importanc
     finally:
         conn.close()
 
-@create.command("super")
+@create.command("super_branch")
 @click.option("--tree-id", type=int, help="Tree ID (prompt if not provided)")
-@click.option("--name", prompt="Super-branch name", help="Name of the super-branch")
-@click.option("--description", default="", help="Description of the super-branch")
+@click.option("--name", prompt="super_branch-branch name", help="Name of the super_branch-branch")
+@click.option("--description", default="", help="Description of the super_branch-branch")
 @click.option("--course", default="", help="Associated course name (optional)")
 @click.option("--course-code", default="", help="Course code (optional)")
 @click.option("--importance", type=float, default=50, help="Importance level (1-100)")
-def create_super_cmd(tree_id, name, description, course, course_code, importance):
-    """Create a new super-branch under a tree"""
+def create_super_branch_cmd(tree_id, name, description, course, course_code, importance):
+    """Create a new super_branch-branch under a tree"""
     uid = require_user()
-    
-    if tree_id is None:
-        tree_id = _prompt_for_parent_id("tree", uid)
-    
     conn = get_db_connection()
+
+    if tree_id is None:
+        tree_id = _prompt_for_parent_id("tree", uid, conn)
     
     try:
         if not (1 <= importance <= 100):
@@ -1581,7 +2635,7 @@ def create_super_cmd(tree_id, name, description, course, course_code, importance
         cursor.execute("SELECT MAX(child_order) FROM Nodes WHERE parent_id = ?", (tree_id,))
         max_order = cursor.fetchone()[0] or 0
         
-        # Create super-branch
+        # Create super_branch-branch
         cursor.execute("""
             INSERT INTO Nodes (user_id, node_type, name, description, course, course_code, 
                               status, importance, understanding, difficulty, engagement, 
@@ -1591,33 +2645,31 @@ def create_super_cmd(tree_id, name, description, course, course_code, importance
               importance, 50, 50, 50, 50, 4, tree_id, max_order + 1, 25))
         
         conn.commit()
-        super_id = cursor.lastrowid
+        super_branch_id = cursor.lastrowid
         
-        console.print(f"[green]✅ Super-branch created ID={super_id} ({name})[/green]")
+        console.print(f"[green]✅ super_branch-branch created ID={super_branch_id} ({name})[/green]")
         console.print(f"[blue]📊 Importance: {importance}, Points: 25[/blue]")
         
     except Exception as e:
-        console.print(f"[red]❌ Error creating super-branch: {e}[/red]")
+        console.print(f"[red]❌ Error creating super_branch-branch: {e}[/red]")
         raise click.Abort()
     finally:
         conn.close()
 
 @create.command("branch")
-@click.option("--super-id", type=int, help="Super-branch ID (prompt if not provided)")
+@click.option("--super_branch-id", type=int, help="super_branch-branch ID (prompt if not provided)")
 @click.option("--name", prompt="Branch name", help="Name of the branch")
 @click.option("--description", default="", help="Description of the branch")
 @click.option("--course", default="", help="Associated course name (optional)")
 @click.option("--course-code", default="", help="Course code (optional)")
 @click.option("--importance", type=float, default=50, help="Importance level (1-100)")
-def create_branch_cmd(super_id, name, description, course, course_code, importance):
-    """Create a new branch under a super-branch"""
+def create_branch_cmd(super_branch_id, name, description, course, course_code, importance):
+    """Create a new branch under a super_branch-branch"""
     uid = require_user()
-    
-    if super_id is None:
-        super_id = _prompt_for_parent_id("super_branch", uid)
-    
     conn = get_db_connection()
-    
+    if super_branch_id is None:
+        super_branch_id = _prompt_for_parent_id("super_branch", uid, conn)
+        
     try:
         if not (1 <= importance <= 100):
             raise ValueError("Importance must be between 1 and 100")
@@ -1628,12 +2680,12 @@ def create_branch_cmd(super_id, name, description, course, course_code, importan
         cursor.execute("""
             SELECT node_id FROM Nodes 
             WHERE node_id = ? AND node_type = 'super_branch' AND user_id = ?
-        """, (super_id, uid))
+        """, (super_branch_id, uid))
         if not cursor.fetchone():
-            raise ValueError(f"Super-branch ID={super_id} not found or not owned by user")
+            raise ValueError(f"super_branch-branch ID={super_branch_id} not found or not owned by user")
         
         # Get child order
-        cursor.execute("SELECT MAX(child_order) FROM Nodes WHERE parent_id = ?", (super_id,))
+        cursor.execute("SELECT MAX(child_order) FROM Nodes WHERE parent_id = ?", (super_branch_id,))
         max_order = cursor.fetchone()[0] or 0
         
         # Create branch
@@ -1643,7 +2695,7 @@ def create_branch_cmd(super_id, name, description, course, course_code, importan
                               fatigue, fibonacci_index, parent_id, child_order, points_value)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (uid, "branch", name, description, course, course_code, "pending", 
-              importance, 50, 50, 50, 50, 5, super_id, max_order + 1, 20))
+              importance, 50, 50, 50, 50, 5, super_branch_id, max_order + 1, 20))
         
         conn.commit()
         branch_id = cursor.lastrowid
@@ -1657,7 +2709,7 @@ def create_branch_cmd(super_id, name, description, course, course_code, importan
     finally:
         conn.close()
 
-@create.command("subbranch")
+@create.command("sub_branch")
 @click.option("--branch-id", type=int, help="Branch ID (prompt if not provided)")
 @click.option("--name", prompt="Sub-branch name", help="Name of the sub-branch")
 @click.option("--description", default="", help="Description of the sub-branch")
@@ -1665,15 +2717,13 @@ def create_branch_cmd(super_id, name, description, course, course_code, importan
 @click.option("--course-code", default="", help="Course code (optional)")
 @click.option("--importance", type=float, default=50, help="Importance level (1-100)")
 @click.option("--prerequisites", help="Comma-separated list of prerequisite node IDs")
-def create_subbranch_cmd(branch_id, name, description, course, course_code, importance, prerequisites):
+def create_sub_branch_cmd(branch_id, name, description, course, course_code, importance, prerequisites):
     """Create a new sub-branch under a branch"""
     uid = require_user()
-    
-    if branch_id is None:
-        branch_id = _prompt_for_parent_id("branch", uid)
-    
     conn = get_db_connection()
-    
+    if branch_id is None:
+        branch_id = _prompt_for_parent_id("branch", uid, conn)
+        
     try:
         if not (1 <= importance <= 100):
             raise ValueError("Importance must be between 1 and 100")
@@ -1709,9 +2759,9 @@ def create_subbranch_cmd(branch_id, name, description, course, course_code, impo
               json.dumps(prereq_list), 15))
         
         conn.commit()
-        subbranch_id = cursor.lastrowid
+        sub_branch_id = cursor.lastrowid
         
-        console.print(f"[green]✅ Sub-branch created ID={subbranch_id} ({name})[/green]")
+        console.print(f"[green]✅ Sub-branch created ID={sub_branch_id} ({name})[/green]")
         console.print(f"[blue]📊 Importance: {importance}, Points: 15[/blue]")
         
         if prereq_list:
@@ -1724,7 +2774,7 @@ def create_subbranch_cmd(branch_id, name, description, course, course_code, impo
         conn.close()
 
 @create.command("leaf")
-@click.option("--subbranch-id", type=int, help="Sub-branch ID (prompt if not provided)")
+@click.option("--sub_branch-id", type=int, help="Sub-branch ID (prompt if not provided)")
 @click.option("--name", prompt="Leaf name", help="Name of the leaf")
 @click.option("--description", default="", help="Description of the leaf")
 @click.option("--course", default="", help="Associated course name (optional)")
@@ -1735,16 +2785,14 @@ def create_subbranch_cmd(branch_id, name, description, course, course_code, impo
 @click.option("--prerequisites", help="Comma-separated list of prerequisite node IDs")
 @click.option("--min-duration", type=int, default=15, help="Minimum study duration (minutes)")
 @click.option("--max-duration", type=int, default=90, help="Maximum study duration (minutes)")
-def create_leaf_cmd(subbranch_id, name, description, course, course_code, importance, 
+def create_leaf_cmd(sub_branch_id, name, description, course, course_code, importance, 
                    difficulty, understanding, prerequisites, min_duration, max_duration):
     """Create a new leaf with enhanced features"""
     uid = require_user()
-    
-    if subbranch_id is None:
-        subbranch_id = _prompt_for_parent_id("sub_branch", uid)
-    
     conn = get_db_connection()
-    
+    if sub_branch_id is None:
+        sub_branch_id = _prompt_for_parent_id("sub_branch", uid, conn)
+        
     try:
         # Validate inputs
         if not all(1 <= x <= 100 for x in [importance, difficulty, understanding]):
@@ -1765,12 +2813,12 @@ def create_leaf_cmd(subbranch_id, name, description, course, course_code, import
         cursor.execute("""
             SELECT node_id FROM Nodes 
             WHERE node_id = ? AND node_type = 'sub_branch' AND user_id = ?
-        """, (subbranch_id, uid))
+        """, (sub_branch_id, uid))
         if not cursor.fetchone():
-            raise ValueError(f"Sub-branch ID={subbranch_id} not found or not owned by user")
+            raise ValueError(f"Sub-branch ID={sub_branch_id} not found or not owned by user")
         
         # Get child order
-        cursor.execute("SELECT MAX(child_order) FROM Nodes WHERE parent_id = ?", (subbranch_id,))
+        cursor.execute("SELECT MAX(child_order) FROM Nodes WHERE parent_id = ?", (sub_branch_id,))
         max_order = cursor.fetchone()[0] or 0
         
         # Create leaf
@@ -1781,7 +2829,7 @@ def create_leaf_cmd(subbranch_id, name, description, course, course_code, import
                               prerequisites, min_duration, max_duration, points_value)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (uid, "leaf", name, description, course, course_code, "pending", 
-              importance, understanding, difficulty, 50, 50, 7, subbranch_id, max_order + 1,
+              importance, understanding, difficulty, 50, 50, 7, sub_branch_id, max_order + 1,
               json.dumps(prereq_list), min_duration, max_duration, 10))
         
         conn.commit()

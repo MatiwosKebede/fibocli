@@ -8,7 +8,7 @@ The system models knowledge as a **tree-like learning ecology**:
 Ecology
  └─ Forest
      └─ Tree
-         └─ Super-branch
+         └─ super_branch-branch
              └─ Branch
                  └─ Sub-branch
                      └─ Leaves (atomic learning units)
@@ -16,7 +16,7 @@ Ecology
 
 * **Leaves**: smallest unit of learning, e.g., a concept, fact, or skill.
 * **Sub-branches**: group related leaves.
-* **Branches, Super-branches, Trees, Forests, Ecology**: progressively higher-level aggregates.
+* **Branches, super_branch-branches, Trees, Forests, Ecology**: progressively higher-level aggregates.
 
 **Key Principle:** A parent node is only considered “complete” when all of its children (direct descendants) are completed.
 
@@ -83,7 +83,7 @@ Next Review Interval (days) = Base Completion Days × Fib(Review Index)
 
    * **Sub-branch integration review** consolidating all leaves.
    * Notifies the parent branch to start next child sub-branch (if any).
-3. **Branch/Super-branch/Tree/Forest/Ecology Completion:** Follows the same principle:
+3. **Branch/super_branch-branch/Tree/Forest/Ecology Completion:** Follows the same principle:
 
    * Complete only when all direct children are done.
    * Schedule **integration review** at each level.

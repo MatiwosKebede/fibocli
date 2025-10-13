@@ -13,7 +13,7 @@ A **fully offline, hierarchical learning management system (CLI)** designed for 
 
 ### Hierarchy & Structure
 
-* 🌍 **Ecology → 🌳 Forest → 🌲 Tree → 🌴 Super Branch → 🌿 Branch → 🍀 Sub-Branch → 🍃 Leaf**
+* 🌍 **Ecology → 🌳 Forest → 🌲 Tree → 🌴 super_branch Branch → 🌿 Branch → 🍀 Sub-Branch → 🍃 Leaf**
 * Wave-based planting:
 
   * Nodes are planted in **waves**.
